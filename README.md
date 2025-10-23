@@ -14,15 +14,23 @@ A Go library for discovering your public IP address using multiple methods:
 - Context support for timeouts and cancellation
 - Fallback between methods
 
-## CLI Installation and Usage
+## CLI Installation
 
-Install the CLI tool:
+### Option 1: Install from source
+
+Install the CLI tool using Go:
 
 ```bash
 go install github.com/cruizba/publicip/cmd/publicip@latest
 ```
 
 > You need to have your `$HOME/go/bin` directory in your system's `PATH` to run the installed binary directly.
+
+### Option 2: Download pre-compiled binary
+
+You can download the pre-compiled binaries from the [releases page](https://github.com/cruizba/publicip/releases/latest).
+
+## CLI Usage
 
 Basic usage:
 ```bash
@@ -51,6 +59,9 @@ publicip -m stun
 
 # Use DNS method with custom timeout
 publicip -m dns -t 5
+
+# Use specific method (HTTP) and IPv6 only
+publicip -m http -i 6
 ```
 
 ## Library Installation

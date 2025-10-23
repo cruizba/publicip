@@ -22,6 +22,8 @@ Install the CLI tool:
 go install github.com/cruizba/publicip/cmd/publicip@latest
 ```
 
+> You need to have your `$HOME/go/bin` directory in your system's `PATH` to run the installed binary directly.
+
 Basic usage:
 ```bash
 publicip

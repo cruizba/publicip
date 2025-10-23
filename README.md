@@ -1,4 +1,4 @@
-# publicip - Golang Public IP Discovery Library
+# publicip - Golang Public IP Discovery Library & CLI Tool
 
 A Go library for discovering your public IP address using multiple methods:
 - STUN (Session Traversal Utilities for NAT)

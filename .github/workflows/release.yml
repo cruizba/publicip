@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.25.3'
+
+      - name: Update version
+        run: |
+          sed -i "s/const version = \".*\"/const version = \"${{ github.event.inputs.version }}\"/" version.go
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.name "GitHub Actions"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.go
+          git commit -m "chore: bump version to ${{ github.event.inputs.version }}"
+          git push
+
+      - name: Build Binaries
+        run: |
+          # Build for each OS/arch combination
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              output="publicip-${{ github.event.inputs.version }}-${os}-${arch}"
+              if [ "$os" = "windows" ]; then
+                output="${output}.exe"
+              fi
+              GOOS=$os GOARCH=$arch go build -o "$output" ./cmd/publicip
+            done
+          done
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.event.inputs.version }}
+          tag_name: ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            publicip-${{ github.event.inputs.version }}-linux-amd64
+            publicip-${{ github.event.inputs.version }}-linux-arm64
+            publicip-${{ github.event.inputs.version }}-darwin-amd64
+            publicip-${{ github.event.inputs.version }}-darwin-arm64
+            publicip-${{ github.event.inputs.version }}-windows-amd64.exe
+            publicip-${{ github.event.inputs.version }}-windows-arm64.exe

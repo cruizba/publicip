@@ -5,6 +5,7 @@ A Go library for discovering your public IP address using multiple methods:
 - DNS queries
 - HTTP requests
 
+
 ## Features
 
 - Multiple discovery methods (STUN, DNS, HTTP)
@@ -13,7 +14,43 @@ A Go library for discovering your public IP address using multiple methods:
 - Context support for timeouts and cancellation
 - Fallback between methods
 
-## Installation
+## CLI Installation and Usage
+
+Install the CLI tool:
+
+```bash
+go install github.com/cruizba/publicip/cmd/publicip@latest
+```
+
+Basic usage:
+```bash
+publicip
+```
+
+Options:
+```
+Flags:
+  -v, --ip-version string   IP version to discover (4 or 6)
+  -m, --method string       Discovery method (stun, dns, or http)
+  -t, --timeout int         Timeout in seconds (default 10)
+```
+
+Examples:
+```bash
+# Discover IPv4 address
+publicip -v 4
+
+# Discover IPv6 address
+publicip -v 6
+
+# Use specific method (STUN)
+publicip -m stun
+
+# Use DNS method with custom timeout
+publicip -m dns -t 5
+```
+
+## Library Installation
 
 ```bash
 go get github.com/cruizba/publicip
@@ -91,7 +128,7 @@ client := publicip.NewClientWithConfig(config)
    - `RequestTimeout`: Timeout for individual service requests (default: 5 seconds)
    
 2. STUN Configuration:
-   - `STUNConfig.Servers`: List of STUN servers (default: Google STUN servers)
+   - `STUNConfig.Servers`: List of default STUN servers.
    ```go
    []string{
        "stun.l.google.com:19302",
@@ -101,7 +138,7 @@ client := publicip.NewClientWithConfig(config)
    ```
 
 3. DNS Configuration:
-   - `DNSConfig.Servers`: List of DNS servers (default: OpenDNS servers)
+   - `DNSConfig.Servers`: List of default DNS servers and query names.
    ```go
    // Default DNS servers
    []string{
@@ -115,7 +152,7 @@ client := publicip.NewClientWithConfig(config)
    Each entry contains the DNS server address and the query name separated by a colon.
 
 4. HTTP Configuration:
-   - `HTTPConfig.Endpoints`: List of HTTP endpoints (default: Common IP services)
+   - `HTTPConfig.Endpoints`: List of default HTTP endpoints.
    ```go
    []string{
        "https://api.ipify.org",

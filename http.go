@@ -82,21 +82,17 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 
 // Discover implements the discoverer interface for HTTP
 func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	for _, endpoint := range d.config.Endpoints {
-		// Try IPv6 first if version is Any or IPv6Only
-		if version == Any || version == IPv6Only {
+	if version == Any || version == IPv6Only {
+		for _, endpoint := range d.config.Endpoints {
 			ip, err := d.tryProtocol(ctx, endpoint, "tcp6")
 			if err == nil {
 				return ip, nil
 			}
-			if version == IPv6Only {
-				logDebug("IPv6 connection failed for %s: %v", endpoint, err)
-				continue
-			}
+			logDebug("IPv6 connection failed for %s: %v", endpoint, err)
 		}
-
-		// Try IPv4 if version is Any or IPv4Only
-		if version == Any || version == IPv4Only {
+	}
+	if version == Any || version == IPv4Only {
+		for _, endpoint := range d.config.Endpoints {
 			ip, err := d.tryProtocol(ctx, endpoint, "tcp4")
 			if err == nil {
 				return ip, nil

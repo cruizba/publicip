@@ -74,21 +74,17 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string) (n
 
 // Discover implements the discoverer interface for DNS
 func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	for _, server := range d.config.Servers {
-		// Try IPv6 first if version is Any or IPv6Only
-		if version == Any || version == IPv6Only {
+	if version == Any || version == IPv6Only {
+		for _, server := range d.config.Servers {
 			ip, err := d.tryQuery(ctx, server, "udp6")
 			if err == nil {
 				return ip, nil
 			}
-			if version == IPv6Only {
-				logDebug("IPv6 DNS query failed for %s: %v", server, err)
-				continue
-			}
+			logDebug("IPv6 DNS query failed for %s: %v", server, err)
 		}
-
-		// Try IPv4 if version is Any or IPv4Only
-		if version == Any || version == IPv4Only {
+	}
+	if version == Any || version == IPv4Only {
+		for _, server := range d.config.Servers {
 			ip, err := d.tryQuery(ctx, server, "udp4")
 			if err == nil {
 				return ip, nil

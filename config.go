@@ -52,7 +52,7 @@ func DefaultDNSConfig() DNSConfig {
 			"resolver1.opendns.com:myip.opendns.com",
 			"resolver2.opendns.com:myip.opendns.com",
 			"ns1.google.com:o-o.myaddr.l.google.com",
-			"ns1-1.akamaitech.net whoami.akamai.net",
+			"ns1-1.akamaitech.net:whoami.akamai.net",
 		},
 	}
 }

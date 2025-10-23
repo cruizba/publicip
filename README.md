@@ -32,18 +32,19 @@ publicip
 Options:
 ```
 Flags:
-  -v, --ip-version string   IP version to discover (4 or 6)
-  -m, --method string       Discovery method (stun, dns, or http)
-  -t, --timeout int         Timeout in seconds (default 10)
+  -i,  --ip-version string   IP version to discover (4 or 6)
+  -m,  --method string       Discovery method (stun, dns, or http)
+  -t,  --timeout int         Timeout in seconds (default 10)
+  -v,  --version            Show version information
 ```
 
 Examples:
 ```bash
 # Discover IPv4 address
-publicip -v 4
+publicip -i 4
 
 # Discover IPv6 address
-publicip -v 6
+publicip -i 6
 
 # Use specific method (STUN)
 publicip -m stun
@@ -70,7 +71,7 @@ import (
     "fmt"
     "log"
     "time"
-    
+
     "github.com/cruizba/publicip"
 )
 

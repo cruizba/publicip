@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	ipVersion string
-	method    string
-	timeout   int
+	ipVersion   string
+	method      string
+	timeout     int
+	showVersion bool
 )
 
 var rootCmd = &cobra.Command{
@@ -23,6 +24,10 @@ var rootCmd = &cobra.Command{
 	Long: `publicip is a command line tool that helps you discover your public IP address 
 using different methods like STUN and DNS, with support for both IPv4 and IPv6.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if showVersion {
+			fmt.Println(publicip.GetVersion())
+			return nil
+		}
 		client := publicip.NewClient()
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -75,9 +80,10 @@ using different methods like STUN and DNS, with support for both IPv4 and IPv6.`
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&ipVersion, "ip-version", "v", "", "IP version to discover (4 or 6)")
+	rootCmd.Flags().StringVarP(&ipVersion, "ip-version", "i", "", "IP version to discover (4 or 6)")
 	rootCmd.Flags().StringVarP(&method, "method", "m", "", "Discovery method (stun, dns, or http)")
 	rootCmd.Flags().IntVarP(&timeout, "timeout", "t", 10, "Timeout in seconds")
+	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show version information")
 }
 
 func main() {

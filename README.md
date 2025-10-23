@@ -105,11 +105,14 @@ client := publicip.NewClientWithConfig(config)
    ```go
    // Default DNS servers
    []string{
-       "resolver1.opendns.com",
-       "resolver2.opendns.com",
-       "myip.opendns.com",
+        "resolver1.opendns.com:myip.opendns.com",
+        "resolver2.opendns.com:myip.opendns.com",
+        "ns1.google.com:o-o.myaddr.l.google.com",
+        "ns1-1.akamaitech.net whoami.akamai.net",
    }
    ```
+
+   Each entry contains the DNS server address and the query name separated by a colon.
 
 4. HTTP Configuration:
    - `HTTPConfig.Endpoints`: List of HTTP endpoints (default: Common IP services)
@@ -146,7 +149,6 @@ The library supports three methods for IP discovery, tried in the following orde
 
 1. **STUN (Session Traversal Utilities for NAT)**
    - Uses STUN protocol to discover your public IP
-   - Most reliable method, especially behind NAT
    - Fastest response time
    - Works with both IPv4 and IPv6
    ```go

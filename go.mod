@@ -4,7 +4,7 @@ go 1.25.3
 
 require (
 	github.com/pion/stun v1.23.1
-	github.com/spf13/cobra v1.10.1
+	github.com/spf13/cobra v1.10.2
 )
 
 require (

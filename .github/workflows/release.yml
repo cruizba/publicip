@@ -47,16 +47,16 @@ jobs:
           done
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.event.inputs.version }}
-          tag_name: ${{ github.event.inputs.version }}
-          draft: false
-          prerelease: false
-          files: |
-            publicip-${{ github.event.inputs.version }}-linux-amd64
-            publicip-${{ github.event.inputs.version }}-linux-arm64
-            publicip-${{ github.event.inputs.version }}-darwin-amd64
-            publicip-${{ github.event.inputs.version }}-darwin-arm64
-            publicip-${{ github.event.inputs.version }}-windows-amd64.exe
-            publicip-${{ github.event.inputs.version }}-windows-arm64.exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            "publicip-$VERSION-linux-amd64" \
+            "publicip-$VERSION-linux-arm64" \
+            "publicip-$VERSION-darwin-amd64" \
+            "publicip-$VERSION-darwin-arm64" \
+            "publicip-$VERSION-windows-amd64.exe" \
+            "publicip-$VERSION-windows-arm64.exe"

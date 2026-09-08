@@ -105,9 +105,14 @@ func parseBindingResponse(data []byte, transactionID [12]byte) (net.IP, error) {
 			}
 		}
 
-		// Attributes are padded to 4-byte boundaries
-		padding := (4 - (attrLen % 4)) % 4
-		attrs = attrs[4+attrLen+padding:]
+		// Attributes are padded to 4-byte boundaries. The padding runs past the end of
+		// the body when the final attribute is not padded: that is a malformed response,
+		// not a reason to panic, so parsing stops and what was found stands.
+		advance := 4 + attrLen + (4-(attrLen%4))%4
+		if advance > len(attrs) {
+			break
+		}
+		attrs = attrs[advance:]
 	}
 
 	if ip == nil {

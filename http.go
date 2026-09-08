@@ -104,15 +104,24 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, family strin
 		return nil, fmt.Errorf("response from %s is larger than %d bytes", endpoint, maxAddressBodyBytes)
 	}
 
-	// Parse IP from response
-	ipStr := strings.TrimSpace(string(body))
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return nil, fmt.Errorf("invalid IP received: %s", ipStr)
+	ip, err := parseAddressBody(body)
+	if err != nil {
+		return nil, err
 	}
 
 	if mismatch := familyMismatch(ip, family); mismatch != nil {
 		return nil, mismatch
+	}
+	return ip, nil
+}
+
+// parseAddressBody turns an echo service's response into an address. It is separate from
+// the request so the trimming and rejection rules can be fuzzed directly.
+func parseAddressBody(body []byte) (net.IP, error) {
+	ipStr := strings.TrimSpace(string(body))
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid IP received: %s", ipStr)
 	}
 	return ip, nil
 }

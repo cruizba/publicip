@@ -20,7 +20,7 @@ Nothing pending.
   keeps what it already decoded. Backported from v2, since it is a crash and not an API
   question.
 
-## [2.0.0] - unreleased
+## [2.0.0] - 2026-09-08
 
 v2 is the breaking release: everything that changes a compiled API lives here, under the
 module path `github.com/cruizba/publicip/v2`. v1 stays available and frozen.

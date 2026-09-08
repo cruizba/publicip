@@ -38,7 +38,7 @@ go install github.com/cruizba/publicip/v2/cmd/publicip@latest
 Or grab a prebuilt binary from the [releases page](https://github.com/cruizba/publicip/releases/latest)
 (linux/darwin/windows × amd64/arm64).
 
-> Using v1? It is a frozen maintenance line: [`v1.2.3`](https://github.com/cruizba/publicip/releases/tag/v1.2.3),
+> Using v1? It is a frozen maintenance line: [`v1.2.4`](https://github.com/cruizba/publicip/releases/tag/v1.2.4),
 > docs in the [`v1`](https://github.com/cruizba/publicip/tree/v1) branch,
 > import path `github.com/cruizba/publicip` without the `/v2`.
 

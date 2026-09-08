@@ -492,3 +492,70 @@ func TestSTUNMalformedResponse(t *testing.T) {
 }
 
 // --- the timeout fix ------------------------------------------------------
+
+// TestParseBindingResponseUnpaddedTrailingAttribute is the regression for the panic the
+// fuzzer found: an attribute whose length is not a multiple of 4, ending the body, makes
+// the 4-byte padding run past the message. Before the bound check this was
+// "slice bounds out of range", reachable from any UDP packet carrying our transaction id
+// — a malformed or careless STUN server could crash the caller.
+func TestParseBindingResponseUnpaddedTrailingAttribute(t *testing.T) {
+	var txn [12]byte
+	binary.BigEndian.PutUint64(txn[:8], 0x0123456789abcdef)
+
+	odd := encodeStunAttr(0x0006, []byte("abcde")) // 4+5 bytes, no padding
+	good := encodeStunAttr(attrXORMappedAddress, xorAddressValue(net.IPv4(203, 0, 113, 3), txn))
+
+	tests := []struct {
+		name    string
+		body    [][]byte
+		want    string
+		wantErr bool
+	}{
+		{
+			// The exact shape that panicked: the only attribute is odd-sized.
+			name:    "odd attribute alone",
+			body:    [][]byte{odd},
+			wantErr: true,
+		},
+		{
+			// A good attribute first is still usable; the trailing malformed one ends
+			// the walk without discarding what was already parsed.
+			name: "good attribute then odd one",
+			body: [][]byte{good, odd},
+			want: "203.0.113.3",
+		},
+		{
+			// An odd attribute in front of a good one misaligns it, so the message
+			// carries no usable address — rejected, not crashed on.
+			name:    "odd attribute then a following one",
+			body:    [][]byte{odd, good},
+			wantErr: true,
+		},
+		{
+			name: "padded odd attribute parses both",
+			body: [][]byte{pad4(odd), good},
+			want: "203.0.113.3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip, err := parseBindingResponse(buildResponse(txn, tt.body...), txn)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseBindingResponse() = %v, want an error", ip)
+				}
+				if ip != nil {
+					t.Errorf("address = %v alongside error %v", ip, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseBindingResponse() error = %v", err)
+			}
+			if got := ip.String(); got != tt.want {
+				t.Errorf("address = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

@@ -66,9 +66,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 1.26.4 is the floor declared in go.mod; 1.27.1 is the current stable.
-        # Running on the floor is what proves the go directive is not a lie.
-        go: ['1.26.4', '1.27.1']
+        # Aliases, not patch pins: a pinned patch is exactly what rotted the release job
+        # into shipping binaries four fixes behind. oldstable is the floor this module
+        # supports, stable is what most people build with, and running on the floor is
+        # what proves the go directive is not a lie.
+        go: ['oldstable', 'stable']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

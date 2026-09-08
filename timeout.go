@@ -75,3 +75,15 @@ func attemptBudget(ctx context.Context, configured time.Duration, attemptsLeft i
 	}
 	return budget, true
 }
+
+// noBudgetError explains why an attempt was refused. It is the caller's cancellation,
+// not a fabricated deadline, so a caller who gave up is not reported as having timed
+// out.
+func noBudgetError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// The deadline has passed but the context has not noticed yet; that is the only way
+	// attemptBudget can refuse with a nil ctx.Err().
+	return context.DeadlineExceeded
+}

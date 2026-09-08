@@ -26,8 +26,8 @@ func TestSTUNExpiredContextStopsImmediately(t *testing.T) {
 	_, err := d.Discover(ctx, IPv4Only)
 	elapsed := time.Since(start)
 
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	if elapsed > time.Second {
 		t.Errorf("Discover() took %v with an already-cancelled context; it must not wait for the request timeout", elapsed)
@@ -45,8 +45,8 @@ func TestSTUNAttemptNeverOutlivesContext(t *testing.T) {
 	_, err := d.Discover(ctx, IPv4Only)
 	elapsed := time.Since(start)
 
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("Discover() took %v; the context deadline must bound the attempt, not RequestTimeout", elapsed)
@@ -68,8 +68,8 @@ func TestSTUNNoBudgetLeftStopsBeforeDialing(t *testing.T) {
 	defer cancel()
 	time.Sleep(10 * time.Millisecond) // let the deadline pass
 
-	if _, err := d.Discover(ctx, IPv4Only); err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if _, err := d.Discover(ctx, IPv4Only); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	select {
 	case <-dialed:
@@ -89,8 +89,8 @@ func TestDNSAttemptBudget(t *testing.T) {
 	_, err := d.Discover(ctx, Any)
 	elapsed := time.Since(start)
 
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("Discover() took %v; the context deadline must bound the attempt", elapsed)
@@ -105,8 +105,8 @@ func TestDNSExpiredContextStopsBeforeQuery(t *testing.T) {
 
 	start := time.Now()
 	_, err := d.Discover(ctx, IPv4Only)
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("Discover() took %v with an already-cancelled context", elapsed)
@@ -143,8 +143,8 @@ func TestHTTPTimeoutIsBoundedByContext(t *testing.T) {
 	_, err = d.Discover(ctx, IPv4Only)
 	elapsed := time.Since(start)
 
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	if elapsed > 10*time.Second {
 		t.Errorf("Discover() took %v; the context deadline must bound the attempt, not RequestTimeout", elapsed)
@@ -161,8 +161,8 @@ func TestHTTPExpiredContextStopsBeforeRequest(t *testing.T) {
 	cancel()
 
 	start := time.Now()
-	if _, err := d.Discover(ctx, IPv4Only); err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if _, err := d.Discover(ctx, IPv4Only); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("Discover() took %v with an already-cancelled context", elapsed)
@@ -336,8 +336,8 @@ func TestClientStopsTryingWhenBudgetIsExhausted(t *testing.T) {
 	_, err := c.Discover(ctx)
 	elapsed := time.Since(start)
 
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 	// The blocking discoverer never returns before the deadline, so the call is
 	// bounded by its own attempt timeout, which the fix clamps to the context.
@@ -355,12 +355,12 @@ type blockingDiscoverer struct {
 	calls *[]string
 }
 
-func (b blockingDiscoverer) Discover(ctx context.Context, _ IPVersion) (net.IP, error) {
+func (b blockingDiscoverer) Discover(ctx context.Context, _ IPVersion) (Result, error) {
 	if b.calls != nil {
 		*b.calls = append(*b.calls, string(b.name))
 	}
 	<-ctx.Done()
-	return nil, ctx.Err()
+	return Result{}, ctx.Err()
 }
 
 // TestSTUNSlowFirstServerStarvesTheRest is the shape of the remaining bug: with one
@@ -378,12 +378,12 @@ func TestSTUNSlowFirstServerStarvesTheRest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 
-	ip, err := d.Discover(ctx, IPv4Only)
+	res, err := d.Discover(ctx, IPv4Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v; the second server was never given a chance because "+
 			"the first attempt consumed the whole %v budget", err, 1200*time.Millisecond)
 	}
-	if got := ip.String(); got != "192.0.2.99" {
-		t.Errorf("Discover() = %s, want 192.0.2.99", got)
+	if got := res.IP.String(); got != "192.0.2.99" {
+		t.Errorf("Discover() = %v, want 192.0.2.99", got)
 	}
 }

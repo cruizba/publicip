@@ -69,21 +69,32 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string, ti
 }
 
 // Discover implements the discoverer interface for DNS
-func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
+func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
 	plan := attemptPlan(d.cfg.dnsServers, version)
-	for i, server := range plan {
+	failures := make([]Failure, 0, len(plan))
+
+	for i, target := range plan {
 		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
 		if !ok {
-			d.cfg.logger.Debug("aborting DNS: no time budget left", "server", server.target)
-			return nil, ErrNoIPDiscovered
+			d.cfg.logger.Debug("aborting DNS: no time budget left", "server", target.target)
+			failures = append(failures, Failure{
+				Method: DNS, Target: target.target, Family: target.family,
+				Err: noBudgetError(ctx),
+			})
+			break
 		}
-		ip, err := d.tryQuery(ctx, server.target, "udp"+server.family, timeout)
+
+		ip, err := d.tryQuery(ctx, target.target, "udp"+target.family, timeout)
 		if err == nil {
-			return ip, nil
+			return Result{IP: ip, Method: DNS, Version: versionOf(ip)}, nil
 		}
-		d.cfg.logger.Debug("DNS attempt failed", "family", server.family, "server", server.target, "error", err)
+
+		failures = append(failures, Failure{
+			Method: DNS, Target: target.target, Family: target.family, Err: err,
+		})
+		d.cfg.logger.Debug("DNS attempt failed", "family", target.family, "server", target.target, "error", err)
 	}
 
-	d.cfg.logger.Debug("all DNS servers failed")
-	return nil, ErrNoIPDiscovered
+	d.cfg.logger.Debug("all DNS targets failed", "attempts", len(failures))
+	return Result{}, discoveryError(ctx, failures)
 }

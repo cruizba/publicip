@@ -9,12 +9,12 @@ import (
 // shape rather than a literal keeps the test valid across releases.
 var semverTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 
-func TestGetVersionShape(t *testing.T) {
-	got := GetVersion()
+func TestVersionShape(t *testing.T) {
+	got := Version()
 	if !semverTag.MatchString(got) {
-		t.Errorf("GetVersion() = %q, want a vMAJOR.MINOR.PATCH tag", got)
+		t.Errorf("Version() = %q, want a vMAJOR.MINOR.PATCH tag", got)
 	}
 	if got != version {
-		t.Errorf("GetVersion() = %q, want the package constant %q", got, version)
+		t.Errorf("Version() = %q, want the package constant %q", got, version)
 	}
 }

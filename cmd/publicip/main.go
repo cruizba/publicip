@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"time"
 
@@ -62,7 +61,7 @@ func run() error {
 	}
 
 	if showVersion {
-		fmt.Println(publicip.GetVersion())
+		fmt.Println(publicip.Version())
 		return nil
 	}
 
@@ -84,7 +83,7 @@ func run() error {
 		return fmt.Errorf("invalid ip-version: %s (must be 4 or 6)", ipVersion)
 	}
 
-	var ip net.IP
+	var result publicip.Result
 	var err error
 
 	// If method is specified, use it with the IP version
@@ -101,20 +100,20 @@ func run() error {
 			return fmt.Errorf("invalid method: %s (must be stun, dns, or http)", method)
 		}
 
-		ip, err = client.DiscoverWithMethod(ctx, m, ipVer)
+		result, err = client.DiscoverWithMethod(ctx, m, ipVer)
 	} else if ipVersion != "" {
 		// If only IP version is specified
-		ip, err = client.DiscoverWithIpVersion(ctx, ipVer)
+		result, err = client.DiscoverWithIPVersion(ctx, ipVer)
 	} else {
 		// Basic discovery
-		ip, err = client.Discover(ctx)
+		result, err = client.Discover(ctx)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(ip.String())
+	fmt.Println(result.IP.String())
 	return nil
 }
 

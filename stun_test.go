@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -422,12 +423,12 @@ func TestSTUNDiscoverIPv4AndIPv6(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := newSTUNDiscoverer(testConfig(WithSTUNServers(tt.servers...), attemptTimeout(2*time.Second)))
-			ip, err := d.Discover(context.Background(), tt.version)
+			res, err := d.Discover(context.Background(), tt.version)
 			if err != nil {
 				t.Fatalf("Discover() error = %v", err)
 			}
-			if got := ip.String(); got != tt.want {
-				t.Errorf("Discover() = %s, want %s", got, tt.want)
+			if got := res.IP.String(); got != tt.want {
+				t.Errorf("Discover() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -440,12 +441,12 @@ func TestSTUNFallsThroughServerList(t *testing.T) {
 	d := newSTUNDiscoverer(testConfig(
 		WithSTUNServers(dead, "127.0.0.1:1", good), attemptTimeout(150*time.Millisecond)))
 
-	ip, err := d.Discover(context.Background(), IPv4Only)
+	res, err := d.Discover(context.Background(), IPv4Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if got := ip.String(); got != "198.51.100.3" {
-		t.Errorf("Discover() = %s, want the third server's answer 198.51.100.3", got)
+	if got := res.IP.String(); got != "198.51.100.3" {
+		t.Errorf("Discover() = %v, want the third server's answer 198.51.100.3", got)
 	}
 }
 
@@ -454,8 +455,8 @@ func TestSTUNAllServersFail(t *testing.T) {
 	d := stunClient(dead, 100*time.Millisecond)
 
 	_, err := d.Discover(context.Background(), IPv4Only)
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 }
 
@@ -466,16 +467,16 @@ func TestSTUNRejectsMismatchedAddressFamily(t *testing.T) {
 
 	d := stunClient(v6addr, 500*time.Millisecond)
 	_, err := d.Discover(context.Background(), IPv6Only)
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered for a family mismatch", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound for a family mismatch", err)
 	}
 }
 
 func TestSTUNDialFailureIsReported(t *testing.T) {
 	d := stunClient("127.0.0.1:1", 100*time.Millisecond)
 	_, err := d.Discover(context.Background(), IPv4Only)
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 }
 
@@ -486,8 +487,8 @@ func TestSTUNMalformedResponse(t *testing.T) {
 	addr := startStunServer(t, "udp4", garbage)
 
 	d := stunClient(addr, 500*time.Millisecond)
-	if _, err := d.Discover(context.Background(), IPv4Only); err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if _, err := d.Discover(context.Background(), IPv4Only); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 }
 

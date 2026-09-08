@@ -2,7 +2,9 @@ package publicip
 
 import (
 	"context"
+	"errors"
 	"net"
+	"strings"
 )
 
 // IPVersion specifies the IP version to discover.
@@ -30,12 +32,49 @@ const (
 	HTTP Method = "http"
 )
 
-// discoverer performs discovery with one method. v2 exports an equivalent interface for
-// callers that want to add their own method.
+// Result is a discovered public address together with how it was obtained.
+type Result struct {
+	// IP is the discovered address.
+	IP net.IP
+	// Method is the discovery method that produced it.
+	Method Method
+	// Version is the family of IP: IPv4Only or IPv6Only. It is derived from the
+	// address, never from what the caller asked for, so a Result can be trusted even
+	// when a discoverer is supplied by the caller.
+	Version IPVersion
+}
+
+// String renders the address with its provenance, for logs and terminal output. Use
+// Result.IP.String() when only the address should appear.
+func (r Result) String() string {
+	if r.IP == nil {
+		return "<empty result>"
+	}
+	family := "ipv6"
+	if r.Version == IPv4Only {
+		family = "ipv4"
+	}
+	method := string(r.Method)
+	if method == "" {
+		method = "unknown"
+	}
+	var b strings.Builder
+	b.WriteString(r.IP.String())
+	b.WriteString(" (")
+	b.WriteString(method)
+	b.WriteByte('/')
+	b.WriteString(family)
+	b.WriteByte(')')
+	return b.String()
+}
+
+// discoverer performs discovery with one method. It is unexported in this commit;
+// exporting it for user-supplied methods is the next step of the v2 design.
 type discoverer interface {
-	// Discover attempts to find the public IP with this method. Implementations must
-	// respect ctx, including its deadline and cancellation.
-	Discover(ctx context.Context, version IPVersion) (net.IP, error)
+	// Discover attempts to find the public address with this method. Implementations
+	// must respect ctx, including its deadline and cancellation, and must return a
+	// *DiscoveryError describing every target they tried when they fail.
+	Discover(ctx context.Context, version IPVersion) (Result, error)
 }
 
 // Client discovers public IP addresses over STUN, DNS and HTTP.
@@ -76,30 +115,35 @@ func (c *Client) callContext(ctx context.Context) (context.Context, context.Canc
 	return context.WithTimeout(ctx, c.config.timeout)
 }
 
-// DiscoverWithMethod discovers the public IP using one specific method.
-func (c *Client) DiscoverWithMethod(ctx context.Context, method Method, version IPVersion) (net.IP, error) {
+// DiscoverWithMethod discovers the public address using one specific method.
+//
+// The returned error is a *DiscoveryError listing what each target answered, or
+// ErrUnsupportedMethod when the client has no discoverer for method.
+func (c *Client) DiscoverWithMethod(ctx context.Context, method Method, version IPVersion) (Result, error) {
 	target, ok := c.discoverers[method]
 	if !ok {
 		c.config.logger.Debug("unsupported method", "method", string(method))
-		return nil, ErrUnsupportedMethod
+		return Result{}, ErrUnsupportedMethod
 	}
 
 	ctx, cancel := c.callContext(ctx)
 	defer cancel()
 
-	ip, err := target.Discover(ctx, version)
+	result, err := target.Discover(ctx, version)
 	if err != nil {
 		c.config.logger.Debug("method failed", "method", string(method), "error", err)
-		return nil, err
+		return Result{}, err
 	}
-	return ip, nil
+	c.config.logger.Debug("address discovered", "method", string(method), "ip", result.IP.String())
+	return result, nil
 }
 
-// DiscoverWithIpVersion tries every configured method in order for one address family.
-func (c *Client) DiscoverWithIpVersion(ctx context.Context, version IPVersion) (net.IP, error) {
+// DiscoverWithIPVersion tries every configured method in order, for one address family.
+func (c *Client) DiscoverWithIPVersion(ctx context.Context, version IPVersion) (Result, error) {
 	ctx, cancel := c.callContext(ctx)
 	defer cancel()
 
+	var failures []Failure
 	for _, method := range c.config.methods {
 		if err := ctx.Err(); err != nil {
 			c.config.logger.Debug("no budget left for further methods", "error", err)
@@ -112,19 +156,41 @@ func (c *Client) DiscoverWithIpVersion(ctx context.Context, version IPVersion) (
 			continue
 		}
 
-		ip, err := target.Discover(ctx, version)
+		result, err := target.Discover(ctx, version)
 		if err == nil {
-			return ip, nil
+			c.config.logger.Debug("address discovered", "method", string(method), "ip", result.IP.String())
+			return result, nil
 		}
+		failures = append(failures, failuresOf(err)...)
 		c.config.logger.Debug("method failed", "method", string(method), "error", err)
 	}
 
-	c.config.logger.Debug("all discovery methods failed")
-	return nil, ErrNoIPDiscovered
+	c.config.logger.Debug("all discovery methods failed", "attempts", len(failures))
+	return Result{}, discoveryError(ctx, failures)
 }
 
 // Discover tries every configured method, IPv6 before IPv4, and returns the first
 // address found.
-func (c *Client) Discover(ctx context.Context) (net.IP, error) {
-	return c.DiscoverWithIpVersion(ctx, Any)
+func (c *Client) Discover(ctx context.Context) (Result, error) {
+	return c.DiscoverWithIPVersion(ctx, Any)
+}
+
+// failuresOf extracts the per-target failures from a discoverer's error so a multi-method
+// run can report one flat list. A foreign error (a caller-supplied discoverer that
+// returns something else) is recorded as a single anonymous failure.
+func failuresOf(err error) []Failure {
+	var de *DiscoveryError
+	if errors.As(err, &de) {
+		return de.failures
+	}
+	return []Failure{{Err: err}}
+}
+
+// versionOf derives the IPVersion of an address, so Result.Version describes what was
+// found rather than what was asked for.
+func versionOf(ip net.IP) IPVersion {
+	if ip.To4() != nil {
+		return IPv4Only
+	}
+	return IPv6Only
 }

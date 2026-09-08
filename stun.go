@@ -227,20 +227,32 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network stri
 }
 
 // Discover implements the Discoverer interface for STUN
-func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
+func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
 	plan := attemptPlan(d.cfg.stunServers, version)
+	failures := make([]Failure, 0, len(plan))
+
 	for i, target := range plan {
 		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
 		if !ok {
 			d.cfg.logger.Debug("aborting STUN: no time budget left", "server", target.target)
-			return nil, ErrNoIPDiscovered
+			failures = append(failures, Failure{
+				Method: STUN, Target: target.target, Family: target.family,
+				Err: noBudgetError(ctx),
+			})
+			break
 		}
+
 		ip, err := d.tryConnection(ctx, target.target, "udp"+target.family, timeout)
 		if err == nil {
-			return ip, nil
+			return Result{IP: ip, Method: STUN, Version: versionOf(ip)}, nil
 		}
+
+		failures = append(failures, Failure{
+			Method: STUN, Target: target.target, Family: target.family, Err: err,
+		})
 		d.cfg.logger.Debug("STUN attempt failed", "family", target.family, "server", target.target, "error", err)
 	}
-	d.cfg.logger.Debug("all STUN servers failed")
-	return nil, ErrNoIPDiscovered
+
+	d.cfg.logger.Debug("all STUN targets failed", "attempts", len(failures))
+	return Result{}, discoveryError(ctx, failures)
 }

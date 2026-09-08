@@ -2,6 +2,7 @@ package publicip
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,12 +27,12 @@ func TestHTTPDiscoverIPv4(t *testing.T) {
 	defer srv.Close()
 
 	d := httpClient([]string{srv.URL}, 2*time.Second)
-	ip, err := d.Discover(context.Background(), IPv4Only)
+	res, err := d.Discover(context.Background(), IPv4Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if got := ip.String(); got != "203.0.113.9" {
-		t.Errorf("Discover() = %s, want 203.0.113.9", got)
+	if got := res.IP.String(); got != "203.0.113.9" {
+		t.Errorf("Discover() = %v, want 203.0.113.9", got)
 	}
 }
 
@@ -47,12 +48,12 @@ func TestHTTPDiscoverIPv6(t *testing.T) {
 	defer srv.Close()
 
 	d := httpClient([]string{srv.URL}, 2*time.Second)
-	ip, err := d.Discover(context.Background(), IPv6Only)
+	res, err := d.Discover(context.Background(), IPv6Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if got := ip.String(); got != "2001:db8::42" {
-		t.Errorf("Discover() = %s, want 2001:db8::42", got)
+	if got := res.IP.String(); got != "2001:db8::42" {
+		t.Errorf("Discover() = %v, want 2001:db8::42", got)
 	}
 }
 
@@ -74,12 +75,12 @@ func TestHTTPTrimsAndParsesBody(t *testing.T) {
 			defer srv.Close()
 
 			d := httpClient([]string{srv.URL}, 2*time.Second)
-			ip, err := d.Discover(context.Background(), IPv4Only)
+			res, err := d.Discover(context.Background(), IPv4Only)
 			if err != nil {
 				t.Fatalf("Discover() error = %v", err)
 			}
-			if got := ip.String(); got != tt.want {
-				t.Errorf("Discover() = %s, want %s", got, tt.want)
+			if got := res.IP.String(); got != tt.want {
+				t.Errorf("Discover() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -104,8 +105,8 @@ func TestHTTPRejectsUnparsableBodies(t *testing.T) {
 			defer srv.Close()
 
 			d := httpClient([]string{srv.URL}, 2*time.Second)
-			if _, err := d.Discover(context.Background(), IPv4Only); err != ErrNoIPDiscovered {
-				t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+			if _, err := d.Discover(context.Background(), IPv4Only); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 			}
 		})
 	}
@@ -119,12 +120,12 @@ func TestHTTPStatusIsNotChecked(t *testing.T) {
 	defer srv.Close()
 
 	d := httpClient([]string{srv.URL}, 2*time.Second)
-	ip, err := d.Discover(context.Background(), IPv4Only)
+	res, err := d.Discover(context.Background(), IPv4Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if got := ip.String(); got != "192.0.2.77" {
-		t.Errorf("Discover() = %s, want 192.0.2.77", got)
+	if got := res.IP.String(); got != "192.0.2.77" {
+		t.Errorf("Discover() = %v, want 192.0.2.77", got)
 	}
 }
 
@@ -136,26 +137,26 @@ func TestHTTPFallsThroughEndpointList(t *testing.T) {
 	defer dead.Close()
 
 	d := httpClient([]string{dead.URL, "http://127.0.0.1:1", good.URL}, 2*time.Second)
-	ip, err := d.Discover(context.Background(), IPv4Only)
+	res, err := d.Discover(context.Background(), IPv4Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if got := ip.String(); got != "192.0.2.10" {
-		t.Errorf("Discover() = %s, want the third endpoint's answer 192.0.2.10", got)
+	if got := res.IP.String(); got != "192.0.2.10" {
+		t.Errorf("Discover() = %v, want the third endpoint's answer 192.0.2.10", got)
 	}
 }
 
 func TestHTTPAllEndpointsFail(t *testing.T) {
 	d := httpClient([]string{"http://127.0.0.1:1", "http://[::1]:1"}, 500*time.Millisecond)
-	if _, err := d.Discover(context.Background(), IPv4Only); err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if _, err := d.Discover(context.Background(), IPv4Only); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 }
 
 func TestHTTPMalformedEndpoint(t *testing.T) {
 	d := httpClient([]string{"http://%zz"}, time.Second)
-	if _, err := d.Discover(context.Background(), IPv4Only); err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if _, err := d.Discover(context.Background(), IPv4Only); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 }
 
@@ -175,11 +176,11 @@ func TestHTTPResponseIsNotFollowedToGarbage(t *testing.T) {
 	defer redirect.Close()
 
 	d := httpClient([]string{redirect.URL + "/redirect"}, 2*time.Second)
-	ip, err := d.Discover(context.Background(), IPv4Only)
+	res, err := d.Discover(context.Background(), IPv4Only)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if got := ip.String(); got != "192.0.2.20" {
-		t.Errorf("Discover() = %s, want 192.0.2.20", got)
+	if got := res.IP.String(); got != "192.0.2.20" {
+		t.Errorf("Discover() = %v, want 192.0.2.20", got)
 	}
 }

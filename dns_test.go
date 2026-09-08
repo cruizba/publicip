@@ -2,6 +2,7 @@ package publicip
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -36,8 +37,8 @@ func TestDNSRejectsMalformedServerEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := dnsClient([]string{tt.server}, time.Second)
 			_, err := d.Discover(context.Background(), IPv4Only)
-			if err != ErrNoIPDiscovered {
-				t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+			if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 			}
 		})
 	}
@@ -49,8 +50,8 @@ func TestDNSQueryReportsUnreachableServer(t *testing.T) {
 	d := dnsClient([]string{"127.0.0.1:nothing", "127.0.0.2:nothing"}, 500*time.Millisecond)
 
 	_, err := d.Discover(context.Background(), IPv4Only)
-	if err != ErrNoIPDiscovered {
-		t.Fatalf("Discover() error = %v, want ErrNoIPDiscovered", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
 	}
 }
 

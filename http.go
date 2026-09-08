@@ -77,21 +77,32 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 }
 
 // Discover implements the discoverer interface for HTTP
-func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
+func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
 	plan := attemptPlan(d.cfg.httpEndpoints, version)
-	for i, endpoint := range plan {
+	failures := make([]Failure, 0, len(plan))
+
+	for i, target := range plan {
 		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
 		if !ok {
-			d.cfg.logger.Debug("aborting HTTP: no time budget left", "server", endpoint.target)
-			return nil, ErrNoIPDiscovered
+			d.cfg.logger.Debug("aborting HTTP: no time budget left", "endpoint", target.target)
+			failures = append(failures, Failure{
+				Method: HTTP, Target: target.target, Family: target.family,
+				Err: noBudgetError(ctx),
+			})
+			break
 		}
-		ip, err := d.tryProtocol(ctx, endpoint.target, "tcp"+endpoint.family, timeout)
+
+		ip, err := d.tryProtocol(ctx, target.target, "tcp"+target.family, timeout)
 		if err == nil {
-			return ip, nil
+			return Result{IP: ip, Method: HTTP, Version: versionOf(ip)}, nil
 		}
-		d.cfg.logger.Debug("HTTP attempt failed", "family", endpoint.family, "endpoint", endpoint.target, "error", err)
+
+		failures = append(failures, Failure{
+			Method: HTTP, Target: target.target, Family: target.family, Err: err,
+		})
+		d.cfg.logger.Debug("HTTP attempt failed", "family", target.family, "endpoint", target.target, "error", err)
 	}
 
-	d.cfg.logger.Debug("all HTTP endpoints failed")
-	return nil, ErrNoIPDiscovered
+	d.cfg.logger.Debug("all HTTP targets failed", "attempts", len(failures))
+	return Result{}, discoveryError(ctx, failures)
 }

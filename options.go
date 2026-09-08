@@ -68,6 +68,10 @@ type Option func(*config)
 // WithTimeout caps the total time a single discovery call may spend, regardless of the
 // context it is given. The effective budget is the smaller of this and the context
 // deadline. Zero, the default, means the context alone decides.
+//
+// The cap is the budget of the whole call, not of each method: with several methods
+// configured, each one gets a share of what is left when it starts, so under a tight cap
+// an attempt may get less than WithAttemptTimeout.
 func WithTimeout(d time.Duration) Option {
 	return func(c *config) {
 		if d > 0 {

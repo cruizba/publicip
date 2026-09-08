@@ -30,9 +30,10 @@ func (f fakeDiscoverer) Discover(_ context.Context, version IPVersion) (Result, 
 	return Result{IP: ip, Method: f.name, Version: versionOf(ip)}, nil
 }
 
-// clientWith swaps in the given discoverers, leaving the rest of the client as-is.
-func clientWith(discoverers map[Method]discoverer) *Client {
-	c := New()
+// clientWith swaps in the given discoverers, leaving the rest of the client as-is. The
+// options configure that client, so a test can set a budget on it too.
+func clientWith(discoverers map[Method]discoverer, opts ...Option) *Client {
+	c := New(opts...)
 	c.discoverers = discoverers
 	return c
 }

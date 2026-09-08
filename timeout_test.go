@@ -3,6 +3,7 @@ package publicip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http/httptest"
 	"testing"
@@ -422,5 +423,294 @@ func TestSTUNSlowFirstServerStarvesTheRest(t *testing.T) {
 	}
 	if got := res.IP.String(); got != "192.0.2.99" {
 		t.Errorf("Discover() = %v, want 192.0.2.99", got)
+	}
+}
+
+// TestMethodContextDividesWhatIsLeft pins the arithmetic of the per-method share: the
+// division is over the time left when the method starts, so a method that finishes early
+// hands its unused slice to the ones behind it.
+func TestMethodContextDividesWhatIsLeft(t *testing.T) {
+	tests := []struct {
+		name        string
+		parent      time.Duration // zero means a context with no deadline
+		methodsLeft int
+		wantShare   time.Duration // zero means the parent must pass through unchanged
+	}{
+		{
+			name: "no deadline passes the parent through", parent: 0, methodsLeft: 3, wantShare: 0,
+		},
+		{
+			name: "three methods each get a third", parent: 900 * time.Millisecond, methodsLeft: 3,
+			wantShare: 300 * time.Millisecond,
+		},
+		{
+			// The last method owns the whole remainder already, so it gets the parent
+			// rather than a copy of its deadline truncated to the nanosecond.
+			name: "the last method keeps the parent", parent: 900 * time.Millisecond, methodsLeft: 1,
+			wantShare: 0,
+		},
+		{
+			name: "nothing to divide for a count below two", parent: 600 * time.Millisecond, methodsLeft: 0,
+			wantShare: 0,
+		},
+		{
+			name: "a negative count divides nothing", parent: 600 * time.Millisecond, methodsLeft: -2,
+			wantShare: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := context.Background()
+			if tt.parent > 0 {
+				ctx, cancel := context.WithTimeout(parent, tt.parent)
+				defer cancel()
+				parent = ctx
+			}
+
+			mctx, cancel := methodContext(parent, tt.methodsLeft)
+			defer cancel()
+
+			if tt.wantShare == 0 {
+				if mctx != parent {
+					t.Errorf("methodContext() = %v, want the parent context unchanged", mctx)
+				}
+				if _, ok := mctx.Deadline(); ok != (tt.parent > 0) {
+					t.Errorf("methodContext() deadline = %v, want %v", ok, tt.parent > 0)
+				}
+				return
+			}
+
+			deadline, ok := mctx.Deadline()
+			if !ok {
+				t.Fatal("methodContext() = no deadline, want a share of the parent's")
+			}
+			parentDeadline, _ := parent.Deadline()
+			share := time.Until(deadline)
+			if share > tt.wantShare {
+				t.Errorf("share = %v, want at most %v", share, tt.wantShare)
+			}
+			if share < tt.wantShare-tt.wantShare/10 {
+				t.Errorf("share = %v, want at least 90%% of %v", share, tt.wantShare)
+			}
+			if deadline.After(parentDeadline) {
+				t.Errorf("share ends at %v, past the parent deadline %v", deadline, parentDeadline)
+			}
+		})
+	}
+}
+
+// TestGlobalCapReachesTheLastMethod is the corporate-network shape from issue 8: outbound
+// UDP is black-holed, so STUN and DNS answer nothing and HTTP would answer at once. The
+// cap is the budget of the whole call, and a method that consumes it before HTTP runs is
+// a bug, not a timeout.
+func TestGlobalCapReachesTheLastMethod(t *testing.T) {
+	// The two black-holed discoverers return only when their context is done, so they
+	// stand in for a server that swallows packets until the cap says otherwise.
+	discoverers := map[Method]discoverer{
+		STUN: blockingDiscoverer{name: STUN},
+		DNS:  blockingDiscoverer{name: DNS},
+		HTTP: fakeDiscoverer{name: HTTP, ip: "203.0.113.9"},
+	}
+
+	for _, tt := range []struct {
+		name string
+		opts []Option
+		ctx  func() (context.Context, context.CancelFunc)
+	}{
+		{
+			name: "caller context deadline",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 900*time.Millisecond)
+			},
+		},
+		{
+			name: "client side cap",
+			opts: []Option{WithTimeout(900 * time.Millisecond)},
+			ctx:  func() (context.Context, context.CancelFunc) { return context.Background(), func() {} },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := clientWith(discoverers, tt.opts...)
+			ctx, cancel := tt.ctx()
+			defer cancel()
+
+			start := time.Now()
+			res, err := c.DiscoverWithIPVersion(ctx, IPv4Only)
+			elapsed := time.Since(start)
+
+			// Two methods burn their third each, so HTTP starts at ~600ms. Before the
+			// cap was shared it never started at all.
+			if err != nil {
+				t.Fatalf("DiscoverWithIPVersion() error = %v, want the healthy method to answer", err)
+			}
+			if res.Method != HTTP {
+				t.Errorf("method = %v, want http", res.Method)
+			}
+			if got := res.IP.String(); got != "203.0.113.9" {
+				t.Errorf("IP = %v, want 203.0.113.9", got)
+			}
+			if elapsed > 900*time.Millisecond {
+				t.Errorf("call took %v, past the 900ms cap", elapsed)
+			}
+		})
+	}
+}
+
+// overrunDiscoverer ignores the context it is handed, which is what a custom source with
+// an uncancelable call looks like. The client bounds each method with a share of the cap,
+// but it cannot interrupt a discoverer that does not watch its context, so what it must
+// still do is stop starting further methods once the cap has gone.
+type overrunDiscoverer struct {
+	name  Method
+	calls *[]string
+	delay time.Duration
+}
+
+func (o overrunDiscoverer) Discover(_ context.Context, _ IPVersion) (Result, error) {
+	if o.calls != nil {
+		*o.calls = append(*o.calls, string(o.name))
+	}
+	time.Sleep(o.delay)
+	return Result{}, ErrNotFound
+}
+
+func TestCapExpiryStopsFurtherMethods(t *testing.T) {
+	var calls []string
+	c := clientWith(map[Method]discoverer{
+		STUN: overrunDiscoverer{name: STUN, calls: &calls, delay: 300 * time.Millisecond},
+		DNS:  fakeDiscoverer{name: DNS, err: ErrNotFound, calls: &calls},
+		HTTP: fakeDiscoverer{name: HTTP, ip: "203.0.113.9", calls: &calls},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	_, err := c.DiscoverWithIPVersion(ctx, IPv4Only)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DiscoverWithIPVersion() error = %v, want ErrNotFound", err)
+	}
+	if fmt.Sprint(calls) != "[stun]" {
+		t.Errorf("methods run = %v, want [stun]: the cap expired during it", calls)
+	}
+}
+
+// recordingDiscoverer hands back the context the client used for one method, so a test
+// can see how that method's slice of the budget was bounded and released.
+type recordingDiscoverer struct {
+	name   Method
+	ip     string
+	captur *context.Context
+}
+
+func (r recordingDiscoverer) Discover(ctx context.Context, _ IPVersion) (Result, error) {
+	if r.captur != nil {
+		*r.captur = ctx
+	}
+	if r.ip == "" {
+		return Result{}, ErrNotFound
+	}
+	return Result{IP: net.ParseIP(r.ip), Method: r.name, Version: versionOf(net.ParseIP(r.ip))}, nil
+}
+
+// TestUnusedSliceOfTheCapReachesTheLaterMethods pins the other half of the fair share: the
+// division is over the time left when each method starts, so three black-holed methods
+// together consume the cap they were given. Handing every method the same fraction of the
+// *original* cap instead would return after roughly seven tenths of it with nothing tried.
+func TestUnusedSliceOfTheCapReachesTheLaterMethods(t *testing.T) {
+	tests := []struct {
+		name        string
+		opts        []Option
+		discoverers map[Method]discoverer
+		budget      time.Duration
+	}{
+		{
+			name:   "three methods share the cap",
+			budget: 1200 * time.Millisecond,
+			discoverers: map[Method]discoverer{
+				STUN: blockingDiscoverer{name: STUN},
+				DNS:  blockingDiscoverer{name: DNS},
+				HTTP: blockingDiscoverer{name: HTTP},
+			},
+		},
+		{
+			// A Method with no discoverer is skipped, so it must not be counted into the
+			// division either: the time it never used would be lost for the others.
+			name:        "an unconfigured method claims no share",
+			opts:        []Option{WithMethods(Method("carrier-pigeon"), STUN, DNS)},
+			budget:      1000 * time.Millisecond,
+			discoverers: map[Method]discoverer{STUN: blockingDiscoverer{name: STUN}, DNS: blockingDiscoverer{name: DNS}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := clientWith(tt.discoverers, tt.opts...)
+
+			ctx, cancel := context.WithTimeout(context.Background(), tt.budget)
+			defer cancel()
+
+			start := time.Now()
+			_, err := c.DiscoverWithIPVersion(ctx, IPv4Only)
+			elapsed := time.Since(start)
+
+			if !errors.Is(err, ErrNotFound) || !errors.Is(err, ErrTimeout) {
+				t.Fatalf("DiscoverWithIPVersion() error = %v, want both ErrNotFound and ErrTimeout", err)
+			}
+			if elapsed < tt.budget-tt.budget/6 {
+				t.Errorf("call returned after %v, want at least five sixths of the %v cap used: "+
+					"time a method did not need must reach the methods behind it", elapsed, tt.budget)
+			}
+			if elapsed > tt.budget+200*time.Millisecond {
+				t.Errorf("call took %v, past the %v cap", elapsed, tt.budget)
+			}
+		})
+	}
+}
+
+// TestMethodContextIsReleasedWhenTheMethodReturns: the sub-deadline exists only to bound
+// one method, so the client must release it as soon as that method answers. Left attached,
+// it would hold a timer on the caller's context for the rest of its share.
+func TestMethodContextIsReleasedWhenTheMethodReturns(t *testing.T) {
+	var captured context.Context
+	c := clientWith(map[Method]discoverer{
+		STUN: recordingDiscoverer{name: STUN, ip: "203.0.113.9", captur: &captured},
+		DNS:  recordingDiscoverer{name: DNS},
+		HTTP: recordingDiscoverer{name: HTTP},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if _, err := c.DiscoverWithIPVersion(ctx, IPv4Only); err != nil {
+		t.Fatalf("DiscoverWithIPVersion() error = %v", err)
+	}
+	if captured == nil {
+		t.Fatal("the discoverer never received a context")
+	}
+	if err := captured.Err(); !errors.Is(err, context.Canceled) {
+		t.Errorf("method context after the call = %v, want context.Canceled: "+
+			"the client released no slice of its budget", err)
+	}
+}
+
+// TestTheLastMethodKeepsTheCallContext pins that a method with nobody behind it is not
+// handed a truncated copy of the budget: it holds the call's own deadline, so the
+// aggregated error reports the caller's expiry rather than one an invented share
+// produced a microsecond earlier.
+func TestTheLastMethodKeepsTheCallContext(t *testing.T) {
+	var captured context.Context
+	c := clientWith(map[Method]discoverer{
+		STUN: recordingDiscoverer{name: STUN, captur: &captured},
+	}, WithMethods(STUN))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if _, err := c.DiscoverWithIPVersion(ctx, IPv4Only); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DiscoverWithIPVersion() error = %v, want ErrNotFound", err)
+	}
+	if captured != ctx {
+		t.Error("the only method received a derived context, want the call's own")
 	}
 }

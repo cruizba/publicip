@@ -47,6 +47,26 @@ func attemptBudget(ctx context.Context, configured time.Duration, attemptsLeft i
 	return budget, true
 }
 
+// methodContext bounds one method of a multi-method call. The total budget belongs to
+// the whole call, not to whichever method runs first, so each method in turn gets a fair
+// share of what is left: without this, two black-holed methods could consume a cap of
+// three seconds and leave the healthy third one never attempted.
+//
+// Two cases pass the context through unchanged, with a cancel that does nothing: a context
+// without a deadline has nothing to divide, and a method that is the last one able to run
+// already owns the whole remainder. Each method then runs to its own pace, bounded by
+// attemptBudget.
+//
+// methodsLeft counts the current method plus those still to run, so the divisor is always
+// at least two.
+func methodContext(ctx context.Context, methodsLeft int) (context.Context, context.CancelFunc) {
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline || methodsLeft < 2 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, time.Until(deadline)/time.Duration(methodsLeft))
+}
+
 // noBudgetError explains why an attempt was refused. It is the caller's cancellation,
 // not a fabricated deadline, so a caller who gave up is not reported as having timed
 // out.

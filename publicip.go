@@ -187,9 +187,20 @@ func (c *Client) invoke(ctx context.Context, target discoverer, method Method, v
 }
 
 // DiscoverWithIPVersion tries every configured method in order, for one address family.
+// When the call is bounded, each method gets a share of the budget that is left when it
+// starts, so a method that stalls cannot keep the ones behind it from running.
 func (c *Client) DiscoverWithIPVersion(ctx context.Context, version IPVersion) (Result, error) {
 	ctx, cancel := c.callContext(ctx)
 	defer cancel()
+
+	// A method with no discoverer is skipped below and would waste a share, so the
+	// division counts only the ones that can actually run.
+	methodsLeft := 0
+	for _, method := range c.config.methods {
+		if _, ok := c.discoverers[method]; ok {
+			methodsLeft++
+		}
+	}
 
 	var failures []Failure
 	for _, method := range c.config.methods {
@@ -204,7 +215,10 @@ func (c *Client) DiscoverWithIPVersion(ctx context.Context, version IPVersion) (
 			continue
 		}
 
-		result, err := c.invoke(ctx, target, method, version)
+		mctx, cancelMethod := methodContext(ctx, methodsLeft)
+		methodsLeft--
+		result, err := c.invoke(mctx, target, method, version)
+		cancelMethod()
 		if err == nil {
 			return result, nil
 		}

@@ -121,6 +121,8 @@ On budgets: the **context you pass is the budget**. `WithTimeout` caps a call fr
 client side for callers who would rather state it once; without it, a `context.Background()`
 means "as long as each attempt needs, up to `WithAttemptTimeout`". Each attempt gets a
 fair share of what is left, so one stalled server cannot starve the healthy ones behind it.
+A cap is shared the same way across methods, so with a tight one a method may get less
+than `WithAttemptTimeout` - leave the cap unset to give every method the full ceiling.
 
 Defaults: `stun.l.google.com:19302`, `stun1.l.google.com:19302`,
 `global.stun.twilio.com:3478`; the OpenDNS, Google and Akamai address services;

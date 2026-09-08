@@ -54,21 +54,21 @@ jobs:
             done
           done
 
-      - name: Generate release notes
+      - name: Verify the changelog against the commits
         env:
           VERSION: ${{ github.event.inputs.version }}
         run: |
-          # Notes come from the commits in the range, not from merged pull requests:
-          # --generate-notes alone describes only PRs, so changes that land directly on
-          # main are missing from the release description entirely.
-          PREV_TAG=$(git describe --tags --abbrev=0 "HEAD^" 2>/dev/null || true)
-          if [ -n "$PREV_TAG" ]; then
-            RELEASE_TAG="$VERSION" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
-              ./scripts/release-notes.sh "$PREV_TAG" HEAD > notes.md
-          else
-            RELEASE_TAG="$VERSION" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
-              ./scripts/release-notes.sh HEAD > notes.md
-          fi
+          # v1 uses the same mechanism as main: CHANGELOG.md describes the release and is
+          # checked against the range, so a patch release cannot go out with notes that
+          # read like a list of commit subjects.
+          ./scripts/release-notes.sh verify "$VERSION"
+
+      - name: Generate release notes
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          RELEASE_REF: ${{ github.event.inputs.version }}
+        run: |
+          ./scripts/release-notes.sh section "$VERSION" > notes.md
           echo '----- release notes -----' >&2
           cat notes.md >&2
 

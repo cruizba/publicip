@@ -8,10 +8,16 @@ import path.
 
 ## [Unreleased]
 
+Nothing pending.
+
+## [2.0.2] - 2026-09-09
+
 ### Fixed
 
 - A global cap (`WithTimeout` or the caller's deadline) is shared across methods, so
   black-holed STUN and DNS no longer keep HTTP from being tried (#8).
+- Side effect worth knowing: under a cap, a method now gets a share of what is left, so
+  an attempt can end below `WithAttemptTimeout`. Leave the cap unset for the full ceiling.
 
 ## [2.0.1] - 2026-09-08
 

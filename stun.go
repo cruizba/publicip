@@ -3,10 +3,10 @@ package publicip
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 )
@@ -41,10 +41,11 @@ func newSTUNDiscoverer(cfg config) *stunDiscoverer {
 	return &stunDiscoverer{cfg: cfg}
 }
 
-// buildBindingRequest creates a STUN Binding Request message
-func buildBindingRequest() ([]byte, [12]byte, error) {
+// buildBindingRequest creates a STUN Binding Request message. The entropy reader is a
+// parameter so the transaction-id failure path is reachable from a test.
+func buildBindingRequest(entropy io.Reader) ([]byte, [12]byte, error) {
 	var transactionID [12]byte
-	if _, err := rand.Read(transactionID[:]); err != nil {
+	if _, err := io.ReadFull(entropy, transactionID[:]); err != nil {
 		return nil, transactionID, err
 	}
 
@@ -179,20 +180,20 @@ func parseMappedAddress(data []byte) net.IP {
 }
 
 // tryConnection sends a Binding Request to one STUN server over the forced family.
-func (d *stunDiscoverer) tryConnection(ctx context.Context, target attempt, timeout time.Duration) (net.IP, error) {
-	network := "udp" + target.family
+func (d *stunDiscoverer) tryConnection(ctx context.Context, server, family string, timeout time.Duration) (net.IP, error) {
+	network := "udp" + family
 	dialer := net.Dialer{
 		Timeout:       timeout,
 		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
 	}
 
-	conn, err := dialer.DialContext(ctx, network, target.target)
+	conn, err := dialer.DialContext(ctx, network, server)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	request, transactionID, err := buildBindingRequest()
+	request, transactionID, err := buildBindingRequest(d.cfg.rand)
 	if err != nil {
 		return nil, err
 	}
@@ -217,11 +218,8 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, target attempt, time
 	}
 
 	// Verify IP version matches the network type
-	isIPv4 := ip.To4() != nil
-	if (network == "udp4" && !isIPv4) || (network == "udp6" && isIPv4) {
-		return nil, fmt.Errorf("IP version mismatch: got IPv%d when requesting IPv%d",
-			map[bool]int{true: 4, false: 6}[isIPv4],
-			map[string]int{"udp4": 4, "udp6": 6}[network])
+	if mismatch := familyMismatch(ip, family); mismatch != nil {
+		return nil, mismatch
 	}
 
 	return ip, nil
@@ -229,5 +227,5 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, target attempt, time
 
 // Discover implements the Discoverer interface for STUN.
 func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
-	return d.cfg.run(ctx, STUN, d.cfg.stunServers, version, d.tryConnection)
+	return run(&d.cfg, ctx, STUN, d.cfg.stunServers, version, d.tryConnection, identity)
 }

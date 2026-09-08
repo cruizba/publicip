@@ -12,13 +12,12 @@ var (
 		"global.stun.twilio.com:3478",
 	}
 
-	// DNS services that answer with the caller's address. Format is
-	// "resolver:query-name".
-	defaultDNSServers = []string{
-		"resolver1.opendns.com:myip.opendns.com",
-		"resolver2.opendns.com:myip.opendns.com",
-		"ns1.google.com:o-o.myaddr.l.google.com",
-		"ns1-1.akamaitech.net:whoami.akamai.net",
+	// DNS services that answer with the caller's address.
+	defaultDNSServers = []DNSServer{
+		{Addr: "resolver1.opendns.com", QueryName: "myip.opendns.com"},
+		{Addr: "resolver2.opendns.com", QueryName: "myip.opendns.com"},
+		{Addr: "ns1.google.com", QueryName: "o-o.myaddr.l.google.com"},
+		{Addr: "ns1-1.akamaitech.net", QueryName: "whoami.akamai.net"},
 	}
 
 	// HTTP echo services. api.ipify.org has no AAAA record, so the IPv6 attempt for it

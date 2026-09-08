@@ -80,7 +80,7 @@ func xorAddressValue(ip net.IP, transactionID [12]byte) []byte {
 // --- buildBindingRequest --------------------------------------------------
 
 func TestBuildBindingRequest(t *testing.T) {
-	msg, transactionID, err := buildBindingRequest()
+	msg, transactionID, err := buildBindingRequest(defaultEntropy)
 	if err != nil {
 		t.Fatalf("buildBindingRequest() error = %v", err)
 	}
@@ -103,11 +103,11 @@ func TestBuildBindingRequest(t *testing.T) {
 }
 
 func TestBuildBindingRequestTransactionIDisRandom(t *testing.T) {
-	_, first, err := buildBindingRequest()
+	_, first, err := buildBindingRequest(defaultEntropy)
 	if err != nil {
 		t.Fatalf("buildBindingRequest() error = %v", err)
 	}
-	_, second, err := buildBindingRequest()
+	_, second, err := buildBindingRequest(defaultEntropy)
 	if err != nil {
 		t.Fatalf("buildBindingRequest() error = %v", err)
 	}
@@ -493,3 +493,38 @@ func TestSTUNMalformedResponse(t *testing.T) {
 }
 
 // --- the timeout fix ------------------------------------------------------
+
+// errReader fails on Read, which is the only way to reach the entropy error path in
+// buildBindingRequest: crypto/rand does not fail on demand.
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("no entropy") }
+
+func TestBuildBindingRequestReportsEntropyFailure(t *testing.T) {
+	msg, transactionID, err := buildBindingRequest(errReader{})
+	if err == nil {
+		t.Fatal("buildBindingRequest() = nil error, want the reader's error")
+	}
+	if !strings.Contains(err.Error(), "no entropy") {
+		t.Errorf("error = %v, want it to come from the reader", err)
+	}
+	if msg != nil {
+		t.Errorf("message = %v, want nil when the transaction id could not be built", msg)
+	}
+	if transactionID != ([12]byte{}) {
+		t.Errorf("transaction id = %x, want the zero value on failure", transactionID)
+	}
+}
+
+func TestSTUNSurfaceEntropyFailureIsReportedPerTarget(t *testing.T) {
+	addr := startStunServer(t, "udp4", answeringServer(net.IPv4(1, 1, 1, 1)))
+	d := newSTUNDiscoverer(testConfig(WithSTUNServers(addr), attemptTimeout(time.Second), withRand(errReader{})))
+
+	_, err := d.Discover(context.Background(), IPv4Only)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "no entropy") {
+		t.Errorf("error = %q, want the entropy failure to reach the report", err)
+	}
+}

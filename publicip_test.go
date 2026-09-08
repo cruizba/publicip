@@ -60,7 +60,7 @@ func TestNewAppliesOptionsInOrder(t *testing.T) {
 	c := New(
 		WithSTUNServers("192.0.2.1:3478"),
 		WithSTUNServers("192.0.2.2:3478"), // a later option wins
-		WithDNSServers("198.51.100.1:query"),
+		WithDNSServers(DNSServer{Addr: "198.51.100.1", QueryName: dnsQueryName}),
 		WithHTTPEndpoints("http://203.0.113.9"),
 		WithTimeout(2*time.Second),
 		WithAttemptTimeout(111*time.Millisecond),
@@ -70,7 +70,7 @@ func TestNewAppliesOptionsInOrder(t *testing.T) {
 	if got := c.config.stunServers; len(got) != 1 || got[0] != "192.0.2.2:3478" {
 		t.Errorf("stunServers = %v, want the last option's value", got)
 	}
-	if got := c.config.dnsServers; len(got) != 1 || got[0] != "198.51.100.1:query" {
+	if got := c.config.dnsServers; len(got) != 1 || got[0] != (DNSServer{Addr: "198.51.100.1", QueryName: dnsQueryName}) {
 		t.Errorf("dnsServers = %v, want the configured single server", got)
 	}
 	if got := c.config.httpEndpoints; len(got) != 1 || got[0] != "http://203.0.113.9" {

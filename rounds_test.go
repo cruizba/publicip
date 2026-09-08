@@ -10,23 +10,29 @@ import (
 	"time"
 )
 
-// stubAttempt is an attemptFunc a test controls: it records which targets ran and can
-// answer, stall, or honour cancellation on demand.
+// attempt pairs a target with the family it was tried under, for test bookkeeping.
+type attempt struct {
+	target string
+	family string // "4" or "6"
+}
+
+// stubAttempt is an attempt function a test controls: it records which targets ran and
+// can answer, stall, or honour cancellation on demand.
 type stubAttempt struct {
 	mu        sync.Mutex
 	ran       []attempt
 	per       time.Duration
 	answers   map[string]net.IP
-	behaviour func(ctx context.Context, target attempt) (net.IP, error)
+	behaviour func(ctx context.Context, target, family string) (net.IP, error)
 }
 
-func (s *stubAttempt) call(ctx context.Context, target attempt, _ time.Duration) (net.IP, error) {
+func (s *stubAttempt) call(ctx context.Context, target, family string, _ time.Duration) (net.IP, error) {
 	s.mu.Lock()
-	s.ran = append(s.ran, target)
+	s.ran = append(s.ran, attempt{target: target, family: family})
 	s.mu.Unlock()
 
 	if s.behaviour != nil {
-		return s.behaviour(ctx, target)
+		return s.behaviour(ctx, target, family)
 	}
 	if s.per > 0 {
 		select {
@@ -35,7 +41,7 @@ func (s *stubAttempt) call(ctx context.Context, target attempt, _ time.Duration)
 			return nil, ctx.Err()
 		}
 	}
-	if ip, ok := s.answers[target.family+":"+target.target]; ok {
+	if ip, ok := s.answers[family+":"+target]; ok {
 		return ip, nil
 	}
 	return nil, errors.New("no answer")
@@ -66,7 +72,7 @@ func TestRoundRunsItsAttemptsConcurrently(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	cfg.run(ctx, STUN, []string{"127.0.0.1:1", "127.0.0.2:1", "127.0.0.3:1"}, IPv4Only, stub.call)
+	run(cfg, ctx, STUN, []string{"127.0.0.1:1", "127.0.0.2:1", "127.0.0.3:1"}, IPv4Only, stub.call, identity)
 	elapsed := time.Since(start)
 
 	if len(stub.targets()) != 3 {
@@ -83,8 +89,8 @@ func TestFirstAnswerCancelsTheRest(t *testing.T) {
 	// timeout.
 	var running sync.WaitGroup
 	running.Add(2)
-	stub := &stubAttempt{behaviour: func(ctx context.Context, target attempt) (net.IP, error) {
-		if target.target == "fast" {
+	stub := &stubAttempt{behaviour: func(ctx context.Context, target, family string) (net.IP, error) {
+		if target == "fast" {
 			return net.ParseIP("203.0.113.5"), nil
 		}
 		<-ctx.Done()
@@ -96,7 +102,7 @@ func TestFirstAnswerCancelsTheRest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	res, err := cfg.run(ctx, STUN, []string{"fast", "slow1", "slow2"}, IPv4Only, stub.call)
+	res, err := run(cfg, ctx, STUN, []string{"fast", "slow1", "slow2"}, IPv4Only, stub.call, identity)
 	if err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
@@ -125,7 +131,7 @@ func TestIPv6RoundWinsAndSkipsIPv4(t *testing.T) {
 
 	// Both names are offered to both families; the IPv6 round must be the one that
 	// answers, and the IPv4 round must never start.
-	res, err := cfg.run(ctx, DNS, []string{"v6", "v4"}, Any, stub.call)
+	res, err := run(cfg, ctx, DNS, []string{"v6", "v4"}, Any, stub.call, identity)
 	if err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
@@ -150,7 +156,7 @@ func TestIPv4IsTriedWhenIPv6FailsEverywhere(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	res, err := cfg.run(ctx, HTTP, []string{"only-v4"}, Any, stub.call)
+	res, err := run(cfg, ctx, HTTP, []string{"only-v4"}, Any, stub.call, identity)
 	if err != nil {
 		t.Fatalf("run() error = %v (the IPv6 round failing must not abort the method)", err)
 	}
@@ -179,7 +185,7 @@ func TestRunReportsEveryFailedTarget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := cfg.run(ctx, STUN, []string{"127.0.0.1:1", "127.0.0.2:1"}, Any, stub.call)
+	_, err := run(cfg, ctx, STUN, []string{"127.0.0.1:1", "127.0.0.2:1"}, Any, stub.call, identity)
 
 	var de *DiscoveryError
 	if !errors.As(err, &de) {
@@ -204,7 +210,7 @@ func TestRunLeaksNoGoroutines(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		//nolint:errcheck // the outcome is not what this test asserts
-		cfg.run(ctx, STUN, []string{"127.0.0.1:1", "127.0.0.2:1", "127.0.0.3:1"}, Any, stub.call)
+		run(cfg, ctx, STUN, []string{"127.0.0.1:1", "127.0.0.2:1", "127.0.0.3:1"}, Any, stub.call, identity)
 		cancel()
 	}
 

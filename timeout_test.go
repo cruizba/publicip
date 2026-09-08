@@ -79,7 +79,7 @@ func TestSTUNNoBudgetLeftStopsBeforeDialing(t *testing.T) {
 }
 
 func TestDNSAttemptBudget(t *testing.T) {
-	d := dnsClient([]string{"127.0.0.1:nothing"}, time.Hour)
+	d := dnsClient([]DNSServer{{Addr: "127.0.0.1:1", QueryName: dnsQueryName}}, time.Hour, nil)
 
 	// An expired context must return before the configured per-attempt timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -94,22 +94,6 @@ func TestDNSAttemptBudget(t *testing.T) {
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("Discover() took %v; the context deadline must bound the attempt", elapsed)
-	}
-}
-
-func TestDNSExpiredContextStopsBeforeQuery(t *testing.T) {
-	d := dnsClient([]string{"127.0.0.1:nothing"}, time.Hour)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	start := time.Now()
-	_, err := d.Discover(ctx, IPv4Only)
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Discover() error = %v, want ErrNotFound", err)
-	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("Discover() took %v with an already-cancelled context", elapsed)
 	}
 }
 
@@ -341,7 +325,7 @@ func TestAttemptRoundsOrder(t *testing.T) {
 	targets := []string{"a", "b", "c"}
 
 	got := attemptRounds(targets, Any)
-	want := [][]attempt{
+	want := [][]round[string]{
 		{{"a", "6"}, {"b", "6"}, {"c", "6"}},
 		{{"a", "4"}, {"b", "4"}, {"c", "4"}},
 	}
@@ -365,7 +349,7 @@ func TestAttemptRoundsOrder(t *testing.T) {
 	if only4 := attemptRounds(targets, IPv4Only); len(only4) != 1 || only4[0][0].family != "4" {
 		t.Errorf("attemptRounds(IPv4Only) = %v, want one round of family 4", only4)
 	}
-	if empty := attemptRounds(nil, Any); len(empty) != 0 {
+	if empty := attemptRounds[string](nil, Any); len(empty) != 0 {
 		t.Errorf("attemptRounds(nil) = %v, want no rounds", empty)
 	}
 }

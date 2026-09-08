@@ -136,8 +136,14 @@ func TestDefaultEndpointShapes(t *testing.T) {
 		}
 	}
 	for _, server := range defaultDNSServers {
-		if parts := strings.Split(server, ":"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			t.Errorf("DNS default %q must be resolver:query-name", server)
+		if server.Addr == "" || server.QueryName == "" {
+			t.Errorf("DNS default %+v must carry both a resolver and a query name", server)
+			continue
+		}
+		// The address must be dialable as written: resolver() supplies the port when the
+		// entry leaves it off.
+		if _, port, err := net.SplitHostPort(server.resolver()); err != nil || port == "" {
+			t.Errorf("DNS default %q does not resolve to host:port", server.Addr)
 		}
 	}
 	for _, endpoint := range defaultHTTPEndpoints {

@@ -22,8 +22,8 @@ func newHTTPDiscoverer(cfg config) *httpDiscoverer {
 }
 
 // tryProtocol fetches the address from one HTTP echo service over the forced family.
-func (d *httpDiscoverer) tryProtocol(ctx context.Context, target attempt, timeout time.Duration) (net.IP, error) {
-	network := "tcp" + target.family
+func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, family string, timeout time.Duration) (net.IP, error) {
+	network := "tcp" + family
 
 	dialer := &net.Dialer{
 		Timeout:       timeout,
@@ -42,7 +42,7 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, target attempt, timeou
 	}
 
 	// Create request with context
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -68,11 +68,8 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, target attempt, timeou
 	}
 
 	// Verify IP version matches the network type
-	isIPv4 := ip.To4() != nil
-	if (network == "tcp4" && !isIPv4) || (network == "tcp6" && isIPv4) {
-		return nil, fmt.Errorf("IP version mismatch: got IPv%d when requesting IPv%d",
-			map[bool]int{true: 4, false: 6}[isIPv4],
-			map[string]int{"tcp4": 4, "tcp6": 6}[network])
+	if mismatch := familyMismatch(ip, family); mismatch != nil {
+		return nil, mismatch
 	}
 
 	return ip, nil
@@ -80,5 +77,5 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, target attempt, timeou
 
 // Discover implements the Discoverer interface for HTTP.
 func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
-	return d.cfg.run(ctx, HTTP, d.cfg.httpEndpoints, version, d.tryProtocol)
+	return run(&d.cfg, ctx, HTTP, d.cfg.httpEndpoints, version, d.tryProtocol, identity)
 }

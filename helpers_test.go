@@ -1,6 +1,7 @@
 package publicip
 
 import (
+	"io"
 	"testing"
 	"time"
 )
@@ -15,7 +16,7 @@ func newTestClient(t *testing.T, opts ...Option) *Client {
 
 	sandbox := []Option{
 		WithSTUNServers("127.0.0.1:1"),
-		WithDNSServers("127.0.0.1:query"),
+		WithDNSServers(DNSServer{Addr: "127.0.0.1:1", QueryName: dnsQueryName}),
 		WithHTTPEndpoints("http://127.0.0.1:1"),
 	}
 	return New(append(sandbox, opts...)...)
@@ -33,3 +34,19 @@ func testConfig(opts ...Option) config {
 
 // attemptTimeout is the per-attempt ceiling a test's discoverer should use.
 func attemptTimeout(d time.Duration) Option { return WithAttemptTimeout(d) }
+
+// dnsQueryName is the record a test asks the fake resolver about. A single label on
+// purpose: the hermetic guard flags dotted names, and these fixtures are never resolved.
+const dnsQueryName = "myaddr"
+
+// withLookup installs a stub resolver transport. It is test-only: the seam exists in the
+// config so the DNS happy path is reachable, but exposing it publicly would make callers
+// responsible for a detail they should not have to think about.
+func withLookup(fn lookupFunc) Option {
+	return func(c *config) { c.lookup = fn }
+}
+
+// withRand installs an entropy source. Test-only for the same reason as withLookup.
+func withRand(r io.Reader) Option {
+	return func(c *config) { c.rand = r }
+}

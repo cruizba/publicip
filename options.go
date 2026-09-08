@@ -1,11 +1,17 @@
 package publicip
 
 import (
+	"crypto/rand"
 	"io"
 	"log/slog"
 	"net/http"
 	"time"
 )
+
+// defaultEntropy is the source of STUN transaction ids. It is a variable so a test can
+// substitute a reader that fails, which is the only way to reach the error branch in
+// buildBindingRequest.
+var defaultEntropy io.Reader = rand.Reader
 
 // defaultAttemptTimeout bounds a single network attempt when the caller supplied neither
 // a per-attempt ceiling nor a context deadline, so that a server that swallows packets
@@ -20,12 +26,18 @@ type config struct {
 	timeout        time.Duration // total budget one Discover call may spend; 0 = no extra bound
 	attemptTimeout time.Duration // ceiling for a single network attempt
 	stunServers    []string
-	dnsServers     []string
+	dnsServers     []DNSServer
 	httpEndpoints  []string
 	httpClient     *http.Client
 	logger         *slog.Logger
 	methods        []Method
 	custom         map[Method]Discoverer
+
+	// lookup and rand are seams for tests: a resolver on port 53 and a failure inside
+	// crypto/rand are both unreachable without them. They are unexported, so they add
+	// nothing to the public API.
+	lookup lookupFunc
+	rand   io.Reader
 }
 
 // defaultConfig is the shape a New() client gets with no options.
@@ -37,12 +49,14 @@ type config struct {
 func defaultConfig() config {
 	return config{
 		stunServers:    append([]string(nil), defaultSTUNServers...),
-		dnsServers:     append([]string(nil), defaultDNSServers...),
+		dnsServers:     append([]DNSServer(nil), defaultDNSServers...),
 		httpEndpoints:  append([]string(nil), defaultHTTPEndpoints...),
 		httpClient:     nil, // built on demand, so a client never shares state with another
 		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		methods:        append([]Method(nil), defaultMethods...),
 		attemptTimeout: defaultAttemptTimeout,
+		lookup:         systemLookup,
+		rand:           defaultEntropy,
 	}
 }
 
@@ -86,10 +100,10 @@ func WithSTUNServers(servers ...string) Option {
 	return func(c *config) { c.stunServers = append([]string(nil), servers...) }
 }
 
-// WithDNSServers replaces the DNS list. Entries are "resolver:query-name", where the
-// query name answers with the caller's address.
-func WithDNSServers(servers ...string) Option {
-	return func(c *config) { c.dnsServers = append([]string(nil), servers...) }
+// WithDNSServers replaces the DNS list. Each entry names a resolver and the query whose
+// answer is the caller's address; the resolver may carry a port.
+func WithDNSServers(servers ...DNSServer) Option {
+	return func(c *config) { c.dnsServers = append([]DNSServer(nil), servers...) }
 }
 
 // WithHTTPEndpoints replaces the HTTP endpoints. Each must answer with a bare address.

@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-// attempt is one network try: a target plus the address family to force.
-type attempt struct {
-	target string
-	family string // "4" or "6"
-}
-
 // attemptBudget reports how long the next attempt may take, and whether there is any
 // time left in ctx to make one at all.
 //

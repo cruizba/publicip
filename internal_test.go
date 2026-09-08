@@ -9,27 +9,9 @@ import (
 	"time"
 )
 
-// Unit tests for the unexported per-attempt helpers. They call the helpers
-// directly because that is the only way to drive the address-family guard and the
-// config-format guard without depending on which families the runner happens to
-// have routed. As such they belong with the fix commit: the helpers take the
-// clamped per-attempt timeout as an argument.
-
-func TestDNSQueryErrorWrapsLookupFailure(t *testing.T) {
-	d := dnsClient(nil, time.Second)
-
-	_, err := d.tryQuery(context.Background(), attempt{target: "127.0.0.1", family: "4"}, time.Second)
-	if err == nil || !strings.Contains(err.Error(), "expected server:domain") {
-		t.Fatalf("tryQuery() error = %v, want the format error", err)
-	}
-
-	// 127.0.0.53 is the systemd-resolved stub address: dialing it is local and
-	// never reaches a resolver, so the lookup fails without sending a DNS query.
-	_, err = d.tryQuery(context.Background(), attempt{target: "127.0.0.53:my.query", family: "4"}, 250*time.Millisecond) // hermetic:allow
-	if err == nil || !strings.Contains(err.Error(), "DNS lookup failed") {
-		t.Fatalf("tryQuery() error = %v, want a wrapped lookup failure", err)
-	}
-}
+// Unit tests for the unexported per-attempt helpers. They call the helpers directly
+// because that is the only way to drive the address-family guard without depending on
+// which families the runner happens to have routed.
 
 func TestHTTPEnforcesRequestedAddressFamily(t *testing.T) {
 	// An IPv6 answer must not be reported when IPv4 was requested, and vice versa.
@@ -37,9 +19,9 @@ func TestHTTPEnforcesRequestedAddressFamily(t *testing.T) {
 	defer v4Listener.Close()
 
 	d := httpClient(nil, 2*time.Second)
-	if _, err := d.tryProtocol(context.Background(), attempt{target: v4Listener.URL, family: "4"}, time.Second); err == nil ||
+	if _, err := d.tryProtocol(context.Background(), v4Listener.URL, "4", time.Second); err == nil ||
 		!strings.Contains(err.Error(), "IP version mismatch") {
-		t.Errorf("tryProtocol(tcp4) with an IPv6 body: error = %v, want an address-family mismatch", err)
+		t.Errorf("tryProtocol(family 4) with an IPv6 body: error = %v, want an address-family mismatch", err)
 	}
 
 	v6ln, err := net.Listen("tcp", "[::1]:0")
@@ -52,9 +34,9 @@ func TestHTTPEnforcesRequestedAddressFamily(t *testing.T) {
 	srv.Start()
 	defer srv.Close()
 
-	if _, err := d.tryProtocol(context.Background(), attempt{target: srv.URL, family: "6"}, time.Second); err == nil ||
+	if _, err := d.tryProtocol(context.Background(), srv.URL, "6", time.Second); err == nil ||
 		!strings.Contains(err.Error(), "IP version mismatch") {
-		t.Errorf("tryProtocol(tcp6) with an IPv4 body: error = %v, want an address-family mismatch", err)
+		t.Errorf("tryProtocol(family 6) with an IPv4 body: error = %v, want an address-family mismatch", err)
 	}
 }
 

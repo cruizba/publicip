@@ -1,11 +1,13 @@
 package publicip
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,18 +29,30 @@ import (
 // server is asked about, never resolved) may opt out with a `// hermetic:allow`
 // comment on the same line, which keeps every exception auditable.
 
-var hermeticTestFiles = []string{
-	"stun_test.go", "dns_test.go", "http_test.go",
-	"publicip_test.go", "config_test.go", "version_test.go", "log_test.go",
-	"timeout_test.go", "internal_test.go", "contract_test.go",
-	"cmd/publicip/main_test.go",
+// hermeticTestFiles discovers the suite instead of listing it, because a hardcoded list
+// goes stale the first time a file is renamed - which is how this check nearly lost its
+// teeth. hermetic_test.go itself is exempt: it has to name the files it checks, and
+// "dns_test.go" is exactly the shape the scan looks for.
+func hermeticTestFiles(t *testing.T) []string {
+	t.Helper()
+
+	local, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+
+	files := make([]string, 0, len(local)+1)
+	for _, name := range local {
+		if name != "hermetic_test.go" {
+			files = append(files, name)
+		}
+	}
+	files = append(files, filepath.Join("cmd", "publicip", "main_test.go"))
+	return files
 }
 
-// hermetic_test.go is exempt from its own scan: it has to name the files it checks,
-// and "dns_test.go" is exactly the shape the scan looks for.
-
 func TestTestFixturesContainNoHostnames(t *testing.T) {
-	for _, name := range hermeticTestFiles {
+	for _, name := range hermeticTestFiles(t) {
 		t.Run(name, func(t *testing.T) {
 			for _, bad := range hostnamesInStrings(t, name) {
 				t.Errorf("%s: string fixture %q would be resolved at runtime; "+
@@ -46,6 +60,69 @@ func TestTestFixturesContainNoHostnames(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDiscoveryTestsUseTheSandbox catches what the literal scan cannot: a test that
+// builds a client with New() and then discovers through it reaches the shipped default
+// servers, which are real public services, without any hostname appearing in the test
+// file. Discovery must go through newTestClient, or through a client whose discoverers
+// were replaced with stubs.
+func TestDiscoveryTestsUseTheSandbox(t *testing.T) {
+	for _, name := range hermeticTestFiles(t) {
+		t.Run(name, func(t *testing.T) {
+			for _, where := range bareNewInDiscoveryTests(t, name) {
+				t.Errorf("%s: %s builds a client with New() and performs discovery; "+
+					"use newTestClient(t, ...) so the default public endpoints are never dialed", name, where)
+			}
+		})
+	}
+}
+
+// bareNewInDiscoveryTests returns "func:line" for each test function that both calls
+// New() directly and calls a Discover method.
+func bareNewInDiscoveryTests(t *testing.T, path string) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	var found []string
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+
+		callsNew, callsDiscover, viaSandbox := false, false, false
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch target := call.Fun.(type) {
+			case *ast.Ident:
+				switch target.Name {
+				case "New":
+					callsNew = true
+				case "newTestClient", "clientWith":
+					viaSandbox = true
+				}
+			case *ast.SelectorExpr:
+				if strings.HasPrefix(target.Sel.Name, "Discover") {
+					callsDiscover = true
+				}
+			}
+			return true
+		})
+
+		if callsNew && callsDiscover && !viaSandbox {
+			found = append(found, fmt.Sprintf("%s:%d", fn.Name.Name, fset.Position(fn.Pos()).Line))
+		}
+	}
+	return found
 }
 
 // TestResolvableNameClassification keeps the detector itself honest: it must catch

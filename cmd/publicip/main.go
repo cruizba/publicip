@@ -66,7 +66,7 @@ func run() error {
 		return nil
 	}
 
-	client := publicip.NewClient()
+	client := publicip.New()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()

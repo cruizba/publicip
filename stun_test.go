@@ -378,7 +378,7 @@ func answeringServer(ip net.IP) stunHandler {
 func silentServer(conn *net.UDPConn, from *net.UDPAddr, req []byte) {}
 
 func stunClient(addr string, timeout time.Duration) *stunDiscoverer {
-	return newSTUNDiscovererWithConfig(timeout, STUNConfig{Servers: []string{addr}})
+	return newSTUNDiscoverer(testConfig(WithSTUNServers(addr), attemptTimeout(timeout)))
 }
 
 func TestSTUNDiscoverIPv4AndIPv6(t *testing.T) {
@@ -421,7 +421,7 @@ func TestSTUNDiscoverIPv4AndIPv6(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := newSTUNDiscovererWithConfig(2*time.Second, STUNConfig{Servers: tt.servers})
+			d := newSTUNDiscoverer(testConfig(WithSTUNServers(tt.servers...), attemptTimeout(2*time.Second)))
 			ip, err := d.Discover(context.Background(), tt.version)
 			if err != nil {
 				t.Fatalf("Discover() error = %v", err)
@@ -437,8 +437,8 @@ func TestSTUNFallsThroughServerList(t *testing.T) {
 	good := startStunServer(t, "udp4", answeringServer(net.IPv4(198, 51, 100, 3)))
 	dead := startStunServer(t, "udp4", silentServer)
 
-	d := newSTUNDiscovererWithConfig(150*time.Millisecond,
-		STUNConfig{Servers: []string{dead, "127.0.0.1:1", good}})
+	d := newSTUNDiscoverer(testConfig(
+		WithSTUNServers(dead, "127.0.0.1:1", good), attemptTimeout(150*time.Millisecond)))
 
 	ip, err := d.Discover(context.Background(), IPv4Only)
 	if err != nil {

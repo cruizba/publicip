@@ -237,12 +237,22 @@ func TestAttemptBudget(t *testing.T) {
 			wantBudget: 0, wantOK: false,
 		},
 		{
-			name: "zero configured timeout stays zero",
+			// Zero now means "unset", so the internal floor applies instead of an
+			// attempt that could block forever on a server that swallows packets.
+			name: "unset ceiling falls back to the default attempt timeout",
 			ctx: func() (context.Context, context.CancelFunc) {
 				return context.Background(), func() {}
 			},
 			configured: 0, attemptsLeft: 4,
-			wantBudget: 0, wantExact: true, wantOK: true,
+			wantBudget: defaultAttemptTimeout, wantExact: true, wantOK: true,
+		},
+		{
+			name: "unset ceiling still respects the fair share of a deadline",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Second)
+			},
+			configured: 0, attemptsLeft: 4,
+			wantBudget: 250 * time.Millisecond, wantExact: false, wantOK: true,
 		},
 	}
 
@@ -363,7 +373,7 @@ func TestSTUNSlowFirstServerStarvesTheRest(t *testing.T) {
 	slow := startStunServer(t, "udp4", silentServer)
 	good := startStunServer(t, "udp4", answeringServer(net.IPv4(192, 0, 2, 99)))
 
-	d := newSTUNDiscovererWithConfig(time.Hour, STUNConfig{Servers: []string{slow, good}})
+	d := newSTUNDiscoverer(testConfig(WithSTUNServers(slow, good), attemptTimeout(time.Hour)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()

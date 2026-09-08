@@ -18,7 +18,7 @@ import (
 // redesign, at which point the answering-server tests land here too.
 
 func dnsClient(servers []string, timeout time.Duration) *dnsDiscoverer {
-	return newDNSDiscovererWithConfig(timeout, DNSConfig{Servers: servers})
+	return newDNSDiscoverer(testConfig(WithDNSServers(servers...), attemptTimeout(timeout)))
 }
 
 func TestDNSRejectsMalformedServerEntries(t *testing.T) {
@@ -68,5 +68,5 @@ func TestDNSDefaultsAreUsable(t *testing.T) {
 // its own function so the only place that touches real hostnames is this offline
 // format check, which never dials.
 func dnsTestServers() []string {
-	return DefaultDNSConfig().Servers
+	return append([]string(nil), defaultDNSServers...)
 }

@@ -11,7 +11,7 @@ import (
 
 func main() {
 	// Create a new client
-	client := publicip.NewClient()
+	client := publicip.New()
 
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

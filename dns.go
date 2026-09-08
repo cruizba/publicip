@@ -10,16 +10,12 @@ import (
 
 // dnsDiscoverer implements IP discovery using DNS queries
 type dnsDiscoverer struct {
-	requestTimeout time.Duration
-	config         DNSConfig
+	cfg config
 }
 
-// newDNSDiscovererWithConfig creates a new DNS-based IP discoverer with the provided configuration
-func newDNSDiscovererWithConfig(timeout time.Duration, config DNSConfig) *dnsDiscoverer {
-	return &dnsDiscoverer{
-		requestTimeout: timeout,
-		config:         config,
-	}
+// newDNSDiscoverer builds a discoverer for one method from the client configuration.
+func newDNSDiscoverer(cfg config) *dnsDiscoverer {
+	return &dnsDiscoverer{cfg: cfg}
 }
 
 // tryQuery attempts to discover IP using the specified DNS server and network type
@@ -74,20 +70,20 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string, ti
 
 // Discover implements the discoverer interface for DNS
 func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	plan := attemptPlan(d.config.Servers, version)
+	plan := attemptPlan(d.cfg.dnsServers, version)
 	for i, server := range plan {
-		timeout, ok := attemptBudget(ctx, d.requestTimeout, len(plan)-i)
+		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
 		if !ok {
-			logDebug("Aborting DNS: no time budget left before %s", server.target)
+			d.cfg.logger.Debug("aborting DNS: no time budget left", "server", server.target)
 			return nil, ErrNoIPDiscovered
 		}
 		ip, err := d.tryQuery(ctx, server.target, "udp"+server.family, timeout)
 		if err == nil {
 			return ip, nil
 		}
-		logDebug("IPv%s DNS query failed for %s: %v", server.family, server.target, err)
+		d.cfg.logger.Debug("DNS attempt failed", "family", server.family, "server", server.target, "error", err)
 	}
 
-	logDebug("All DNS servers failed to discover IP")
+	d.cfg.logger.Debug("all DNS servers failed")
 	return nil, ErrNoIPDiscovered
 }

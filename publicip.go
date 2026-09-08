@@ -5,97 +5,126 @@ import (
 	"net"
 )
 
-// IPVersion specifies the IP version to discover
+// IPVersion specifies the IP version to discover.
 type IPVersion int
 
 const (
-	// Any returns either IPv4 or IPv6
+	// Any accepts whichever family answers first: IPv6 is tried before IPv4 for every
+	// method, matching the order v1 shipped.
 	Any IPVersion = iota
-	// IPv4Only returns only IPv4 addresses
+	// IPv4Only returns only IPv4 addresses.
 	IPv4Only
-	// IPv6Only returns only IPv6 addresses
+	// IPv6Only returns only IPv6 addresses.
 	IPv6Only
 )
 
-// Method represents the method used to discover the public IP
+// Method represents the discovery method used to find the public IP.
 type Method string
 
 const (
-	// STUN uses STUN protocol to discover public IP
+	// STUN asks a STUN server what address it saw the request come from.
 	STUN Method = "stun"
-	// DNS uses DNS queries to discover public IP
+	// DNS queries a DNS service that answers with the caller's address.
 	DNS Method = "dns"
-	// HTTP uses HTTP requests to discover public IP
+	// HTTP fetches the address from an HTTP echo service.
 	HTTP Method = "http"
 )
 
-// discoverer interface defines the contract for IP discovery implementations
+// discoverer performs discovery with one method. v2 exports an equivalent interface for
+// callers that want to add their own method.
 type discoverer interface {
-	// Discover attempts to find the public IP using the specific method
+	// Discover attempts to find the public IP with this method. Implementations must
+	// respect ctx, including its deadline and cancellation.
 	Discover(ctx context.Context, version IPVersion) (net.IP, error)
 }
 
-// Client represents the main public IP discovery client
+// Client discovers public IP addresses over STUN, DNS and HTTP.
+//
+// A Client is safe for concurrent use: its configuration is fixed at construction and
+// each call carries its own state.
 type Client struct {
-	config      *Config
+	config      config
 	discoverers map[Method]discoverer
 }
 
-// NewClient creates a new public IP discovery client with default configuration
-func NewClient() *Client {
-	return NewClientWithConfig(DefaultConfig())
-}
-
-// NewClientWithConfig creates a new public IP discovery client with the provided configuration
-func NewClientWithConfig(config *Config) *Client {
-	if config == nil {
-		config = DefaultConfig()
+// New returns a Client configured by the given options, with sensible defaults for
+// everything left unset.
+func New(opts ...Option) *Client {
+	cfg := defaultConfig()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
 	}
+
 	return &Client{
-		config: config,
+		config: cfg,
 		discoverers: map[Method]discoverer{
-			STUN: newSTUNDiscovererWithConfig(config.RequestTimeout, config.STUNConfig),
-			DNS:  newDNSDiscovererWithConfig(config.RequestTimeout, config.DNSConfig),
-			HTTP: newHTTPDiscovererWithConfig(config.RequestTimeout, config.HTTPConfig),
+			STUN: newSTUNDiscoverer(cfg),
+			DNS:  newDNSDiscoverer(cfg),
+			HTTP: newHTTPDiscoverer(cfg),
 		},
 	}
 }
 
-// DiscoverWithMethod discovers public IP using a specific method
+// callContext bounds one discovery call by the client's timeout, if it has one. The
+// caller's context always wins: the effective deadline is the earlier of the two.
+func (c *Client) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.config.timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.config.timeout)
+}
+
+// DiscoverWithMethod discovers the public IP using one specific method.
 func (c *Client) DiscoverWithMethod(ctx context.Context, method Method, version IPVersion) (net.IP, error) {
-	discoverer, ok := c.discoverers[method]
+	target, ok := c.discoverers[method]
 	if !ok {
-		logDebug("Error: Unsupported method %s", method)
+		c.config.logger.Debug("unsupported method", "method", string(method))
 		return nil, ErrUnsupportedMethod
 	}
-	ip, err := discoverer.Discover(ctx, version)
+
+	ctx, cancel := c.callContext(ctx)
+	defer cancel()
+
+	ip, err := target.Discover(ctx, version)
 	if err != nil {
-		logDebug("Error: Method %s failed: %v", method, err)
+		c.config.logger.Debug("method failed", "method", string(method), "error", err)
 		return nil, err
 	}
 	return ip, nil
 }
 
-// DiscoverWithIpVersion tries all available methods in order until it finds a public IP
+// DiscoverWithIpVersion tries every configured method in order for one address family.
 func (c *Client) DiscoverWithIpVersion(ctx context.Context, version IPVersion) (net.IP, error) {
-	methods := []Method{STUN, DNS, HTTP}
+	ctx, cancel := c.callContext(ctx)
+	defer cancel()
 
-	for _, method := range methods {
-		if ctx.Err() != nil {
-			logDebug("Aborting discovery: no time budget left before method %s", method)
-			return nil, ErrNoIPDiscovered
+	for _, method := range c.config.methods {
+		if err := ctx.Err(); err != nil {
+			c.config.logger.Debug("no budget left for further methods", "error", err)
+			break
 		}
-		ip, err := c.DiscoverWithMethod(ctx, method, version)
+
+		target, ok := c.discoverers[method]
+		if !ok {
+			c.config.logger.Debug("skipping unconfigured method", "method", string(method))
+			continue
+		}
+
+		ip, err := target.Discover(ctx, version)
 		if err == nil {
 			return ip, nil
 		}
+		c.config.logger.Debug("method failed", "method", string(method), "error", err)
 	}
 
-	logDebug("Error: All discovery methods failed")
+	c.config.logger.Debug("all discovery methods failed")
 	return nil, ErrNoIPDiscovered
 }
 
-// Discover tries any version IP using all available methods in order until it finds a public IP
+// Discover tries every configured method, IPv6 before IPv4, and returns the first
+// address found.
 func (c *Client) Discover(ctx context.Context) (net.IP, error) {
 	return c.DiscoverWithIpVersion(ctx, Any)
 }

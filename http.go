@@ -13,16 +13,12 @@ import (
 
 // httpDiscoverer implements IP discovery using HTTP requests
 type httpDiscoverer struct {
-	requestTimeout time.Duration
-	config         HTTPConfig
+	cfg config
 }
 
-// newHTTPDiscovererWithConfig creates a new HTTP-based IP discoverer with the provided configuration
-func newHTTPDiscovererWithConfig(timeout time.Duration, config HTTPConfig) *httpDiscoverer {
-	return &httpDiscoverer{
-		requestTimeout: timeout,
-		config:         config,
-	}
+// newHTTPDiscoverer builds a discoverer for one method from the client configuration.
+func newHTTPDiscoverer(cfg config) *httpDiscoverer {
+	return &httpDiscoverer{cfg: cfg}
 }
 
 // tryProtocol attempts to discover IP using the specified network (tcp4 or tcp6)
@@ -82,20 +78,20 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 
 // Discover implements the discoverer interface for HTTP
 func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	plan := attemptPlan(d.config.Endpoints, version)
+	plan := attemptPlan(d.cfg.httpEndpoints, version)
 	for i, endpoint := range plan {
-		timeout, ok := attemptBudget(ctx, d.requestTimeout, len(plan)-i)
+		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
 		if !ok {
-			logDebug("Aborting HTTP: no time budget left before %s", endpoint.target)
+			d.cfg.logger.Debug("aborting HTTP: no time budget left", "server", endpoint.target)
 			return nil, ErrNoIPDiscovered
 		}
 		ip, err := d.tryProtocol(ctx, endpoint.target, "tcp"+endpoint.family, timeout)
 		if err == nil {
 			return ip, nil
 		}
-		logDebug("IPv%s connection failed for %s: %v", endpoint.family, endpoint.target, err)
+		d.cfg.logger.Debug("HTTP attempt failed", "family", endpoint.family, "endpoint", endpoint.target, "error", err)
 	}
 
-	logDebug("All HTTP endpoints failed to discover IP")
+	d.cfg.logger.Debug("all HTTP endpoints failed")
 	return nil, ErrNoIPDiscovered
 }

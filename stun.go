@@ -33,16 +33,12 @@ const (
 
 // stunDiscoverer implements IP discovery using STUN protocol
 type stunDiscoverer struct {
-	requestTimeout time.Duration
-	config         STUNConfig
+	cfg config
 }
 
-// newSTUNDiscovererWithConfig creates a new STUN-based IP discoverer with the provided configuration
-func newSTUNDiscovererWithConfig(timeout time.Duration, config STUNConfig) *stunDiscoverer {
-	return &stunDiscoverer{
-		requestTimeout: timeout,
-		config:         config,
-	}
+// newSTUNDiscoverer builds a discoverer for one method from the client configuration.
+func newSTUNDiscoverer(cfg config) *stunDiscoverer {
+	return &stunDiscoverer{cfg: cfg}
 }
 
 // buildBindingRequest creates a STUN Binding Request message
@@ -232,19 +228,19 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network stri
 
 // Discover implements the Discoverer interface for STUN
 func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	plan := attemptPlan(d.config.Servers, version)
+	plan := attemptPlan(d.cfg.stunServers, version)
 	for i, target := range plan {
-		timeout, ok := attemptBudget(ctx, d.requestTimeout, len(plan)-i)
+		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
 		if !ok {
-			logDebug("Aborting STUN: no time budget left before %s", target.target)
+			d.cfg.logger.Debug("aborting STUN: no time budget left", "server", target.target)
 			return nil, ErrNoIPDiscovered
 		}
 		ip, err := d.tryConnection(ctx, target.target, "udp"+target.family, timeout)
 		if err == nil {
 			return ip, nil
 		}
-		logDebug("IPv%s connection failed for %s: %v", target.family, target.target, err)
+		d.cfg.logger.Debug("STUN attempt failed", "family", target.family, "server", target.target, "error", err)
 	}
-	logDebug("All STUN servers failed to discover IP")
+	d.cfg.logger.Debug("all STUN servers failed")
 	return nil, ErrNoIPDiscovered
 }

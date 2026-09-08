@@ -11,7 +11,7 @@ import (
 )
 
 func httpClient(endpoints []string, timeout time.Duration) *httpDiscoverer {
-	return newHTTPDiscovererWithConfig(timeout, HTTPConfig{Endpoints: endpoints})
+	return newHTTPDiscoverer(testConfig(WithHTTPEndpoints(endpoints...), attemptTimeout(timeout)))
 }
 
 // stubIP returns an HTTP handler that answers with the given body.

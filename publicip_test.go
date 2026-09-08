@@ -3,6 +3,7 @@ package publicip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -30,16 +31,19 @@ func (f fakeDiscoverer) Discover(_ context.Context, version IPVersion) (net.IP, 
 
 // clientWith swaps in the given discoverers, leaving the rest of the client as-is.
 func clientWith(discoverers map[Method]discoverer) *Client {
-	c := NewClient()
+	c := New()
 	c.discoverers = discoverers
 	return c
 }
 
-func TestNewClientDefaults(t *testing.T) {
-	c := NewClient()
+func TestNewUsesDefaults(t *testing.T) {
+	c := New()
 
-	if c.config != DefaultConfig() && c.config.RequestTimeout != DefaultConfig().RequestTimeout {
-		t.Errorf("RequestTimeout = %v, want the default %v", c.config.RequestTimeout, DefaultConfig().RequestTimeout)
+	if c.config.attemptTimeout != defaultAttemptTimeout {
+		t.Errorf("attemptTimeout = %v, want the default %v", c.config.attemptTimeout, defaultAttemptTimeout)
+	}
+	if c.config.timeout != 0 {
+		t.Errorf("timeout = %v, want 0: the caller's context is the budget by default", c.config.timeout)
 	}
 	for _, m := range []Method{STUN, DNS, HTTP} {
 		if _, ok := c.discoverers[m]; !ok {
@@ -51,29 +55,60 @@ func TestNewClientDefaults(t *testing.T) {
 	}
 }
 
-func TestNewClientWithNilConfigFallsBackToDefaults(t *testing.T) {
-	c := NewClientWithConfig(nil)
-	if c.config == nil {
-		t.Fatal("NewClientWithConfig(nil) left the config unset")
+func TestNewAppliesOptionsInOrder(t *testing.T) {
+	c := New(
+		WithSTUNServers("192.0.2.1:3478"),
+		WithSTUNServers("192.0.2.2:3478"), // a later option wins
+		WithDNSServers("198.51.100.1:query"),
+		WithHTTPEndpoints("http://203.0.113.9"),
+		WithTimeout(2*time.Second),
+		WithAttemptTimeout(111*time.Millisecond),
+		WithMethods(HTTP, DNS),
+	)
+
+	if got := c.config.stunServers; len(got) != 1 || got[0] != "192.0.2.2:3478" {
+		t.Errorf("stunServers = %v, want the last option's value", got)
 	}
-	if c.config.RequestTimeout != 5*time.Second {
-		t.Errorf("RequestTimeout = %v, want 5s", c.config.RequestTimeout)
+	if got := c.config.dnsServers; len(got) != 1 || got[0] != "198.51.100.1:query" {
+		t.Errorf("dnsServers = %v, want the configured single server", got)
+	}
+	if got := c.config.httpEndpoints; len(got) != 1 || got[0] != "http://203.0.113.9" {
+		t.Errorf("httpEndpoints = %v, want the configured endpoint", got)
+	}
+	if c.config.timeout != 2*time.Second {
+		t.Errorf("timeout = %v, want 2s", c.config.timeout)
+	}
+	if c.config.attemptTimeout != 111*time.Millisecond {
+		t.Errorf("attemptTimeout = %v, want 111ms", c.config.attemptTimeout)
+	}
+	if got := fmt.Sprint(c.config.methods); got != "[http dns]" {
+		t.Errorf("methods = %s, want the order the caller asked for", got)
 	}
 }
 
-func TestNewClientWithConfigUsesGivenConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.RequestTimeout = 111 * time.Millisecond
-	cfg.STUNConfig.Servers = []string{"192.0.2.1:3478"}
+func TestNewIgnoresNonsenseOptions(t *testing.T) {
+	// A nil Option must not panic, and zero/negative durations must not disarm the
+	// defaults: an unbounded attempt would let one black-holed server hang the call.
+	c := New(nil, WithTimeout(-time.Second), WithAttemptTimeout(0), WithMethods(), WithHTTPClient(nil))
 
-	c := NewClientWithConfig(cfg)
-	if c.config.RequestTimeout != 111*time.Millisecond {
-		t.Errorf("RequestTimeout = %v, want 111ms", c.config.RequestTimeout)
+	if c.config.timeout != 0 {
+		t.Errorf("timeout = %v, want 0 (unset means the context decides)", c.config.timeout)
+	}
+	if c.config.attemptTimeout != defaultAttemptTimeout {
+		t.Errorf("attemptTimeout = %v, want the default %v", c.config.attemptTimeout, defaultAttemptTimeout)
+	}
+	if got := fmt.Sprint(c.config.methods); got != "[stun dns http]" {
+		t.Errorf("methods = %s, want the default order preserved", got)
+	}
+	if c.config.httpClient != nil {
+		t.Error("httpClient = non-nil, want nil so one is built on demand")
 	}
 }
 
 func TestDiscoverWithMethodUnsupported(t *testing.T) {
-	c := NewClient()
+	// Built through the sandbox even though this path returns before dialing: the rule
+	// "any test calling Discover* uses newTestClient" is worth more than the exception.
+	c := newTestClient(t)
 
 	_, err := c.DiscoverWithMethod(context.Background(), Method("carrier-pigeon"), Any)
 	if err != ErrUnsupportedMethod {

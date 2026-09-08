@@ -47,7 +47,12 @@ func attemptBudget(ctx context.Context, configured time.Duration, attemptsLeft i
 		return 0, false
 	}
 
-	budget := configured
+	// configured <= 0 means the caller set no per-attempt ceiling, so only the context
+	// and the fair share bound an attempt.
+	budget := time.Duration(0)
+	if configured > 0 {
+		budget = configured
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -56,12 +61,17 @@ func attemptBudget(ctx context.Context, configured time.Duration, attemptsLeft i
 		if attemptsLeft < 1 {
 			attemptsLeft = 1
 		}
-		if share := remaining / time.Duration(attemptsLeft); share < budget {
+		if share := remaining / time.Duration(attemptsLeft); budget == 0 || share < budget {
 			budget = share
 		}
 		if budget <= 0 {
 			return 0, false
 		}
+	}
+	if budget <= 0 {
+		// Neither a deadline nor a ceiling: without some floor a black-holed server
+		// would block forever, so the default attempt timeout applies.
+		budget = defaultAttemptTimeout
 	}
 	return budget, true
 }

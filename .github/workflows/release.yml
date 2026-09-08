@@ -84,7 +84,6 @@ jobs:
             --target "$(git rev-parse HEAD)" \
             --title "$VERSION" \
             --notes-file notes.md \
-            --generate-notes \
             "publicip-$VERSION-linux-amd64" \
             "publicip-$VERSION-linux-arm64" \
             "publicip-$VERSION-darwin-amd64" \

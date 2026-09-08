@@ -67,31 +67,68 @@ section() {
   done
 }
 
-# Breaking changes first: the "!" marker goes on the type, so match it before the
-# plain types below and exclude it from them.
-breaking=()
+# Group by Conventional Commit type. Several types share one section ("ci", "build",
+# "chore" and "perf" all land in CI and tooling), and a subject that does not parse as
+# "type(scope)!: description" still gets reported under Other changes - silently
+# dropping commits is how a changelog starts lying.
+
+declare -A bucket=()
+declare -a order=("Breaking changes" "Fixed" "Added" "Changed" "Performance" "Tests" "CI and tooling" "Documentation" "Other changes")
+
+type_to_section() {
+  case "$1" in
+    breaking)        echo "Breaking changes" ;;
+    fix)             echo "Fixed" ;;
+    feat)            echo "Added" ;;
+    refactor|revert) echo "Changed" ;;
+    perf)            echo "Performance" ;;
+    test)            echo "Tests" ;;
+    ci|build|chore)  echo "CI and tooling" ;;
+    docs)            echo "Documentation" ;;
+    *)               echo "Other changes" ;;
+  esac
+}
+
+# classify <subject> -> "<section>$TAB<description>"
+classify() {
+  local subject="$1" type desc
+  # The pattern lives in a variable: inside [[ =~ ]] an inline regex with parentheses is
+  # parsed by the shell rather than the regex engine.
+  local pattern='^([a-zA-Z]+)(\(([^)]*)\))?(!)?:[[:space:]]*(.*)$'
+  if [[ "$subject" =~ $pattern ]]; then
+    type="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+    desc="${BASH_REMATCH[5]}"
+    [ -n "${BASH_REMATCH[3]}" ] && desc="**${BASH_REMATCH[3]}**: ${desc}"
+    [ -n "${BASH_REMATCH[4]}" ] && type="breaking"
+  else
+    type="other"
+    desc="$subject"
+  fi
+  printf '%s\t%s' "$(type_to_section "$type")" "$desc"
+}
+
+listed=0
 for line in "${subjects[@]}"; do
-  s="${line%%$'\t'*}"
-  case "$s" in *'!:'*) breaking+=("$s");; esac
+  subject="${line%%$'\t'*}"
+  sha="${line##*$'\t'}"
+  classified="$(classify "$subject")"
+  section="${classified%%$'\t'*}"
+  desc="${classified#*$'\t'}"
+  bucket["$section"]+="- ${desc} (${sha})"$'\n'
+  listed=$((listed + 1))
 done
 
-if [ "${#breaking[@]}" -gt 0 ]; then
-  printf '\n## Breaking changes\n\n'
-  for line in "${subjects[@]}"; do
-    subject="${line%%$'\t'*}"
-    sha="${line##*$'\t'}"
-    case "$subject" in
-      *'!:'*) printf -- '- %s (%s)\n' "${subject#*:}" "$sha";;
-    esac
-  done
-fi
+for section in "${order[@]}"; do
+  if [ -n "${bucket[$section]:-}" ]; then
+    printf '\n## %s\n\n%s' "$section" "${bucket[$section]}"
+  fi
+done
 
-section "Fixed" "fix:"
-section "Added" "feat:"
-section "Changed" "refactor:"
-section "Tests" "test:"
-section "CI and tooling" "ci:" "chore:" "build:"
-section "Documentation" "docs:"
+# Self-check: every commit in the range must have landed in a section.
+if [ "$listed" -ne "${#subjects[@]}" ]; then
+  printf 'release-notes: %d of %d commits were not classified\n'     "$(( ${#subjects[@]} - listed ))" "${#subjects[@]}" >&2
+  exit 1
+fi
 
 repo="${GITHUB_REPOSITORY:-}"
 if [ -z "$repo" ]; then

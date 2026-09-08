@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -43,9 +44,10 @@ func hermeticTestFiles(t *testing.T) []string {
 
 	files := make([]string, 0, len(local)+1)
 	for _, name := range local {
-		if name != "hermetic_test.go" {
-			files = append(files, name)
+		if name == "hermetic_test.go" || isIntegrationOnly(name) {
+			continue
 		}
+		files = append(files, name)
 	}
 	files = append(files, filepath.Join("cmd", "publicip", "main_test.go"))
 	return files
@@ -60,6 +62,22 @@ func TestTestFixturesContainNoHostnames(t *testing.T) {
 			}
 		})
 	}
+}
+
+// isIntegrationOnly reports whether a test file is confined behind the integration
+// build tag. Those files are exempt from both hermetic checks: they exist to contact
+// the shipped public services, which is the only way to notice a decommissioned
+// server, and that is the deliberate opposite of the unit suite's rule.
+func isIntegrationOnly(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	head := string(data)
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	return strings.Contains(head, "//go:build integration")
 }
 
 // TestDiscoveryTestsUseTheSandbox catches what the literal scan cannot: a test that

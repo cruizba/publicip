@@ -319,3 +319,53 @@ func TestRunTreatsNilIPWithNilErrorAsNoAnswer(t *testing.T) {
 		t.Errorf("failure error = %v, want ErrNotFound for a result-less success", failures[0].Err)
 	}
 }
+
+func TestHTTPForcesTheAddressFamilyInTheDial(t *testing.T) {
+	// Removing the DialContext assignment survives a behavioural test, because the
+	// family check after parsing rejects the same answer either way. What has to be
+	// asserted is the dial itself: an IPv6 request must go out as tcp6.
+	var seen []string
+	d := newHTTPDiscoverer(testConfig(
+		WithHTTPEndpoints("http://127.0.0.1:1"),
+		attemptTimeout(200*time.Millisecond),
+		withDial(func(ctx context.Context, network, addr string) (net.Conn, error) {
+			seen = append(seen, network)
+			return nil, errors.New("no route")
+		}),
+	))
+
+	//nolint:errcheck // the outcome is asserted through the recorded networks
+	d.Discover(context.Background(), Any)
+
+	if len(seen) != 2 || seen[0] != "tcp6" || seen[1] != "tcp4" {
+		t.Errorf("dialed %v, want [tcp6 tcp4] in that order", seen)
+	}
+}
+
+func TestHTTPAcceptsABodyOfExactlyTheLimit(t *testing.T) {
+	// The bound is "larger than", so a body of exactly maxAddressBodyBytes must still
+	// be accepted. An off-by-one mutant would reject it and only this edge catches it.
+	ip := "203.0.113.200"
+	prefix := strings.Repeat(" ", maxAddressBodyBytes-len(ip))
+	srv := httptest.NewServer(stubIP(prefix + ip))
+	defer srv.Close()
+
+	d := httpClient([]string{srv.URL}, 2*time.Second)
+	res, err := d.Discover(context.Background(), IPv4Only)
+	if err != nil {
+		t.Fatalf("Discover() error = %v, want a body of exactly %d bytes accepted", err, maxAddressBodyBytes)
+	}
+	if got := res.IP.String(); got != ip {
+		t.Errorf("Discover() = %v, want %s after trimming the padding", got, ip)
+	}
+
+	// One byte more is refused.
+	over := httptest.NewServer(stubIP(" " + prefix + ip))
+	defer over.Close()
+
+	d2 := httpClient([]string{over.URL}, 2*time.Second)
+	if _, err := d2.Discover(context.Background(), IPv4Only); err == nil ||
+		!strings.Contains(err.Error(), "larger than") {
+		t.Errorf("Discover() error = %v, want the size limit to fire one byte past it", err)
+	}
+}

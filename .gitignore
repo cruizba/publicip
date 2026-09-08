@@ -35,3 +35,6 @@ mutago-*.json
 cover.out
 publicip
 publicip-*
+# tool output
+/report.json
+/mutago-report.html

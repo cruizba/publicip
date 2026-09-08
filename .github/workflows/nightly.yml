@@ -1,0 +1,43 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz the wire parsers
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - FuzzParseBindingResponse
+          - FuzzParseXORMappedAddress
+          - FuzzParseMappedAddress
+          - FuzzParseAddressBody
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # A crash is filed as a commit to testdata/fuzz by whoever reproduces it, so the
+      # finding becomes a permanent regression seed instead of a lost CI artifact.
+      - name: Fuzz for 2 minutes
+        run: go test -run '^$' -fuzz='${{ matrix.target }}' -fuzztime=2m .
+
+  integration:
+    name: Discovery against the real services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Integration suite
+        run: go test -tags integration -count=1 -timeout 10m -v ./...

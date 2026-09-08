@@ -97,6 +97,56 @@ jobs:
           fi
           echo "hermetic: every address the suite touched was loopback"
 
+  coverage:
+    name: Coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test with coverage
+        run: go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./...
+
+      # 100% of statements per file, package and total; every exclusion needs a
+      # reason in the code, which force-annotation-comment enforces.
+      - name: Enforce the coverage threshold
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.testcoverage.yml
+
+  mutation:
+    name: Mutation score
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Pinned: 100%-statement-coverage means nothing if the assertions are inert, and
+      # this is the check that says so. Verified against mutago v2.10.1: the gate that
+      # exits non-zero is --min-covered-msi (4), not --fail-on-escaped, which stays
+      # silent when --coverage classifies a survivor as not covered.
+      - name: Install mutago
+        run: go install github.com/quality-gates/mutago/v2/cmd/mutago@v2.10.1
+
+      - name: Mutate
+        run: |
+          mutago \
+            --coverage \
+            --min-covered-msi 84 \
+            --baseline=mutago-baseline.json \
+            --quiet --no-diffs ./...
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: report.json
+
   build:
     name: Cross-compile
     runs-on: ubuntu-latest

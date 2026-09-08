@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/cruizba/publicip"
+	"github.com/cruizba/publicip/v2"
 )
 
 func main() {

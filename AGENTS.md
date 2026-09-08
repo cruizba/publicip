@@ -3,6 +3,12 @@
 This file provides guidance to coding agents (pi, Claude Code, ...) when working
 with code in this repository.
 
+> **Status: v2 migration in progress.** `main` is now the module
+> `github.com/cruizba/publicip/v2`, and the redesign is landing commit by commit.
+> Until this note is removed, the architecture and API described below document the
+> **v1** shape (frozen on branch `v1`, tag `v1.2.3`) and parts of it are being replaced.
+> If you change anything public, re-read the Versioning policy section first.
+
 ## Build Commands
 
 ```bash

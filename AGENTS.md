@@ -114,9 +114,18 @@ then creates the tag and assets with `gh release create --generate-notes`
 (softprops/action-gh-release was dropped). There is **no CI workflow** running
 tests or lint on PRs. Dependabot runs weekly for `gomod` and `github_actions`.
 
+## Versioning policy
+
+- v1 is a frozen maintenance line: bug fixes only, no new exported symbols, no
+  behavior changes visible to code that compiles today, no change to the `go`
+  directive.
+- All breaking changes (types, names, error semantics, discovery ordering) belong to
+  v2 under module path `github.com/cruizba/publicip/v2`. Intentional breaks use
+  `feat!`/`fix!` commit prefixes so release notes group them.
+
 ## Conventions
 
-- Go code and comments in English.
+- Code, comments and documentation (README, AGENTS.md) are in English.
 - `errors.go` defines `ErrUnsupportedIPVersion` and `ErrTimeout` but nothing
   returns them today; if you add error paths, wire them up rather than adding
   more unused sentinels, and wrap underlying errors (`%w`) so callers can inspect

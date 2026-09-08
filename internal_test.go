@@ -18,14 +18,14 @@ import (
 func TestDNSQueryErrorWrapsLookupFailure(t *testing.T) {
 	d := dnsClient(nil, time.Second)
 
-	_, err := d.tryQuery(context.Background(), "127.0.0.1", "udp4", time.Second)
+	_, err := d.tryQuery(context.Background(), attempt{target: "127.0.0.1", family: "4"}, time.Second)
 	if err == nil || !strings.Contains(err.Error(), "expected server:domain") {
 		t.Fatalf("tryQuery() error = %v, want the format error", err)
 	}
 
 	// 127.0.0.53 is the systemd-resolved stub address: dialing it is local and
 	// never reaches a resolver, so the lookup fails without sending a DNS query.
-	_, err = d.tryQuery(context.Background(), "127.0.0.53:my.query", "udp4", 250*time.Millisecond) // hermetic:allow
+	_, err = d.tryQuery(context.Background(), attempt{target: "127.0.0.53:my.query", family: "4"}, 250*time.Millisecond) // hermetic:allow
 	if err == nil || !strings.Contains(err.Error(), "DNS lookup failed") {
 		t.Fatalf("tryQuery() error = %v, want a wrapped lookup failure", err)
 	}
@@ -37,7 +37,7 @@ func TestHTTPEnforcesRequestedAddressFamily(t *testing.T) {
 	defer v4Listener.Close()
 
 	d := httpClient(nil, 2*time.Second)
-	if _, err := d.tryProtocol(context.Background(), v4Listener.URL, "tcp4", time.Second); err == nil ||
+	if _, err := d.tryProtocol(context.Background(), attempt{target: v4Listener.URL, family: "4"}, time.Second); err == nil ||
 		!strings.Contains(err.Error(), "IP version mismatch") {
 		t.Errorf("tryProtocol(tcp4) with an IPv6 body: error = %v, want an address-family mismatch", err)
 	}
@@ -52,7 +52,7 @@ func TestHTTPEnforcesRequestedAddressFamily(t *testing.T) {
 	srv.Start()
 	defer srv.Close()
 
-	if _, err := d.tryProtocol(context.Background(), srv.URL, "tcp6", time.Second); err == nil ||
+	if _, err := d.tryProtocol(context.Background(), attempt{target: srv.URL, family: "6"}, time.Second); err == nil ||
 		!strings.Contains(err.Error(), "IP version mismatch") {
 		t.Errorf("tryProtocol(tcp6) with an IPv4 body: error = %v, want an address-family mismatch", err)
 	}

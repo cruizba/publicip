@@ -18,12 +18,14 @@ func newDNSDiscoverer(cfg config) *dnsDiscoverer {
 	return &dnsDiscoverer{cfg: cfg}
 }
 
-// tryQuery attempts to discover IP using the specified DNS server and network type
-func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string, timeout time.Duration) (net.IP, error) {
+// tryQuery asks one DNS service for the address it sees, over the forced family.
+func (d *dnsDiscoverer) tryQuery(ctx context.Context, target attempt, timeout time.Duration) (net.IP, error) {
+	network := "udp" + target.family
+
 	// Split server:domain format
-	parts := strings.Split(server, ":")
+	parts := strings.Split(target.target, ":")
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid DNS server format (expected server:domain): %s", server)
+		return nil, fmt.Errorf("invalid DNS server format (expected server:domain): %s", target.target)
 	}
 	dnsServer, domain := parts[0], parts[1]
 
@@ -68,33 +70,7 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string, ti
 	return ip, nil
 }
 
-// Discover implements the discoverer interface for DNS
+// Discover implements the Discoverer interface for DNS.
 func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
-	plan := attemptPlan(d.cfg.dnsServers, version)
-	failures := make([]Failure, 0, len(plan))
-
-	for i, target := range plan {
-		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
-		if !ok {
-			d.cfg.logger.Debug("aborting DNS: no time budget left", "server", target.target)
-			failures = append(failures, Failure{
-				Method: DNS, Target: target.target, Family: target.family,
-				Err: noBudgetError(ctx),
-			})
-			break
-		}
-
-		ip, err := d.tryQuery(ctx, target.target, "udp"+target.family, timeout)
-		if err == nil {
-			return Result{IP: ip, Method: DNS, Version: versionOf(ip)}, nil
-		}
-
-		failures = append(failures, Failure{
-			Method: DNS, Target: target.target, Family: target.family, Err: err,
-		})
-		d.cfg.logger.Debug("DNS attempt failed", "family", target.family, "server", target.target, "error", err)
-	}
-
-	d.cfg.logger.Debug("all DNS targets failed", "attempts", len(failures))
-	return Result{}, discoveryError(ctx, failures)
+	return d.cfg.run(ctx, DNS, d.cfg.dnsServers, version, d.tryQuery)
 }

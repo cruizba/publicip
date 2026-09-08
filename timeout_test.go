@@ -334,34 +334,39 @@ func TestAttemptBudgetRefusesAStaleDeadline(t *testing.T) {
 	}
 }
 
-// TestAttemptPlanOrder pins the historical traversal: IPv6 across every target first,
-// then IPv4. Callers cannot see the plan, but reordering it changes which server answers
-// and is therefore a v2 decision, not a v1 refactor.
-func TestAttemptPlanOrder(t *testing.T) {
+// TestAttemptRoundsOrder pins the traversal: every target over IPv6 first, then IPv4.
+// Callers cannot see the rounds, but reordering them changes which server answers, so it
+// is a v2 decision rather than a v1 refactor.
+func TestAttemptRoundsOrder(t *testing.T) {
 	targets := []string{"a", "b", "c"}
 
-	got := attemptPlan(targets, Any)
-	want := []attempt{
-		{"a", "6"}, {"b", "6"}, {"c", "6"},
-		{"a", "4"}, {"b", "4"}, {"c", "4"},
+	got := attemptRounds(targets, Any)
+	want := [][]attempt{
+		{{"a", "6"}, {"b", "6"}, {"c", "6"}},
+		{{"a", "4"}, {"b", "4"}, {"c", "4"}},
 	}
 	if len(got) != len(want) {
-		t.Fatalf("attemptPlan(Any) = %v, want %v entries", got, len(want))
+		t.Fatalf("attemptRounds(Any) = %d rounds, want %d: %v", len(got), len(want), got)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("attemptPlan(Any)[%d] = %v, want %v", i, got[i], want[i])
+	for r := range want {
+		if len(got[r]) != len(want[r]) {
+			t.Fatalf("round %d has %d attempts, want %d", r, len(got[r]), len(want[r]))
+		}
+		for i := range want[r] {
+			if got[r][i] != want[r][i] {
+				t.Errorf("attemptRounds(Any)[%d][%d] = %v, want %v", r, i, got[r][i], want[r][i])
+			}
 		}
 	}
 
-	if only6 := attemptPlan(targets, IPv6Only); len(only6) != 3 || only6[0].family != "6" {
-		t.Errorf("attemptPlan(IPv6Only) = %v, want the three targets over family 6", only6)
+	if only6 := attemptRounds(targets, IPv6Only); len(only6) != 1 || only6[0][0].family != "6" {
+		t.Errorf("attemptRounds(IPv6Only) = %v, want one round of family 6", only6)
 	}
-	if only4 := attemptPlan(targets, IPv4Only); len(only4) != 3 || only4[0].family != "4" {
-		t.Errorf("attemptPlan(IPv4Only) = %v, want the three targets over family 4", only4)
+	if only4 := attemptRounds(targets, IPv4Only); len(only4) != 1 || only4[0][0].family != "4" {
+		t.Errorf("attemptRounds(IPv4Only) = %v, want one round of family 4", only4)
 	}
-	if empty := attemptPlan(nil, Any); len(empty) != 0 {
-		t.Errorf("attemptPlan(nil) = %v, want no attempts", empty)
+	if empty := attemptRounds(nil, Any); len(empty) != 0 {
+		t.Errorf("attemptRounds(nil) = %v, want no rounds", empty)
 	}
 }
 

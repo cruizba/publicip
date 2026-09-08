@@ -178,14 +178,15 @@ func parseMappedAddress(data []byte) net.IP {
 	return nil
 }
 
-// tryConnection attempts to establish a STUN connection using the specified network type
-func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network string, timeout time.Duration) (net.IP, error) {
+// tryConnection sends a Binding Request to one STUN server over the forced family.
+func (d *stunDiscoverer) tryConnection(ctx context.Context, target attempt, timeout time.Duration) (net.IP, error) {
+	network := "udp" + target.family
 	dialer := net.Dialer{
 		Timeout:       timeout,
 		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
 	}
 
-	conn, err := dialer.DialContext(ctx, network, server)
+	conn, err := dialer.DialContext(ctx, network, target.target)
 	if err != nil {
 		return nil, err
 	}
@@ -226,33 +227,7 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network stri
 	return ip, nil
 }
 
-// Discover implements the Discoverer interface for STUN
+// Discover implements the Discoverer interface for STUN.
 func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
-	plan := attemptPlan(d.cfg.stunServers, version)
-	failures := make([]Failure, 0, len(plan))
-
-	for i, target := range plan {
-		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
-		if !ok {
-			d.cfg.logger.Debug("aborting STUN: no time budget left", "server", target.target)
-			failures = append(failures, Failure{
-				Method: STUN, Target: target.target, Family: target.family,
-				Err: noBudgetError(ctx),
-			})
-			break
-		}
-
-		ip, err := d.tryConnection(ctx, target.target, "udp"+target.family, timeout)
-		if err == nil {
-			return Result{IP: ip, Method: STUN, Version: versionOf(ip)}, nil
-		}
-
-		failures = append(failures, Failure{
-			Method: STUN, Target: target.target, Family: target.family, Err: err,
-		})
-		d.cfg.logger.Debug("STUN attempt failed", "family", target.family, "server", target.target, "error", err)
-	}
-
-	d.cfg.logger.Debug("all STUN targets failed", "attempts", len(failures))
-	return Result{}, discoveryError(ctx, failures)
+	return d.cfg.run(ctx, STUN, d.cfg.stunServers, version, d.tryConnection)
 }

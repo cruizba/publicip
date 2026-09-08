@@ -21,8 +21,10 @@ func newHTTPDiscoverer(cfg config) *httpDiscoverer {
 	return &httpDiscoverer{cfg: cfg}
 }
 
-// tryProtocol attempts to discover IP using the specified network (tcp4 or tcp6)
-func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network string, timeout time.Duration) (net.IP, error) {
+// tryProtocol fetches the address from one HTTP echo service over the forced family.
+func (d *httpDiscoverer) tryProtocol(ctx context.Context, target attempt, timeout time.Duration) (net.IP, error) {
+	network := "tcp" + target.family
+
 	dialer := &net.Dialer{
 		Timeout:       timeout,
 		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
@@ -40,7 +42,7 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 	}
 
 	// Create request with context
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -76,33 +78,7 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 	return ip, nil
 }
 
-// Discover implements the discoverer interface for HTTP
+// Discover implements the Discoverer interface for HTTP.
 func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
-	plan := attemptPlan(d.cfg.httpEndpoints, version)
-	failures := make([]Failure, 0, len(plan))
-
-	for i, target := range plan {
-		timeout, ok := attemptBudget(ctx, d.cfg.attemptTimeout, len(plan)-i)
-		if !ok {
-			d.cfg.logger.Debug("aborting HTTP: no time budget left", "endpoint", target.target)
-			failures = append(failures, Failure{
-				Method: HTTP, Target: target.target, Family: target.family,
-				Err: noBudgetError(ctx),
-			})
-			break
-		}
-
-		ip, err := d.tryProtocol(ctx, target.target, "tcp"+target.family, timeout)
-		if err == nil {
-			return Result{IP: ip, Method: HTTP, Version: versionOf(ip)}, nil
-		}
-
-		failures = append(failures, Failure{
-			Method: HTTP, Target: target.target, Family: target.family, Err: err,
-		})
-		d.cfg.logger.Debug("HTTP attempt failed", "family", target.family, "endpoint", target.target, "error", err)
-	}
-
-	d.cfg.logger.Debug("all HTTP targets failed", "attempts", len(failures))
-	return Result{}, discoveryError(ctx, failures)
+	return d.cfg.run(ctx, HTTP, d.cfg.httpEndpoints, version, d.tryProtocol)
 }

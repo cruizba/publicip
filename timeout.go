@@ -11,28 +11,6 @@ type attempt struct {
 	family string // "4" or "6"
 }
 
-// attemptPlan lists the attempts a discoverer makes for a target list, in the order
-// v1 has always used them: every target over IPv6 first, then every target over IPv4.
-// Listing them up front is what lets each attempt know how many of its siblings are
-// still waiting.
-func attemptPlan(targets []string, version IPVersion) []attempt {
-	var families []string
-	if version == Any || version == IPv6Only {
-		families = append(families, "6")
-	}
-	if version == Any || version == IPv4Only {
-		families = append(families, "4")
-	}
-
-	plan := make([]attempt, 0, len(families)*len(targets))
-	for _, family := range families {
-		for _, target := range targets {
-			plan = append(plan, attempt{target: target, family: family})
-		}
-	}
-	return plan
-}
-
 // attemptBudget reports how long the next attempt may take, and whether there is any
 // time left in ctx to make one at all.
 //

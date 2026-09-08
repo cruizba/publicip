@@ -65,14 +65,14 @@ func TestWithLoggerReceivesDebugOutput(t *testing.T) {
 	}
 
 	// Attributes, not fmt.Sprintf: the point of taking a *slog.Logger.
-	var server string
+	var target string
 	for _, a := range handler.attrs {
-		if a.Key == "server" {
-			server = a.Value.String()
+		if a.Key == "target" {
+			target = a.Value.String()
 		}
 	}
-	if server != "127.0.0.1:1" {
-		t.Errorf("server attribute = %q, want 127.0.0.1:1", server)
+	if target != "127.0.0.1:1" {
+		t.Errorf("target attribute = %q, want 127.0.0.1:1", target)
 	}
 }
 

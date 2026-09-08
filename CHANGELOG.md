@@ -10,6 +10,16 @@ import path.
 
 Nothing pending.
 
+## [1.2.4] - 2026-09-08
+
+### Fixed
+
+- A malformed STUN response whose final attribute is not padded to a 4-byte boundary
+  panicked with a slice index past the end of the buffer. Any server in the configured
+  list could crash a caller with it; parsing now stops at the truncated attribute and
+  keeps what it already decoded. Backported from v2, since it is a crash and not an API
+  question.
+
 ## [2.0.0] - unreleased
 
 v2 is the breaking release: everything that changes a compiled API lives here, under the

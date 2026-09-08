@@ -23,7 +23,7 @@ func newDNSDiscovererWithConfig(timeout time.Duration, config DNSConfig) *dnsDis
 }
 
 // tryQuery attempts to discover IP using the specified DNS server and network type
-func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string) (net.IP, error) {
+func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string, timeout time.Duration) (net.IP, error) {
 	// Split server:domain format
 	parts := strings.Split(server, ":")
 	if len(parts) != 2 {
@@ -33,7 +33,7 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string) (n
 
 	// Create a DNS resolver with specific network type
 	dialer := &net.Dialer{
-		Timeout:       d.requestTimeout,
+		Timeout:       timeout,
 		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
 	}
 
@@ -76,7 +76,12 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string) (n
 func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
 	if version == Any || version == IPv6Only {
 		for _, server := range d.config.Servers {
-			ip, err := d.tryQuery(ctx, server, "udp6")
+			timeout, ok := attemptBudget(ctx, d.requestTimeout)
+			if !ok {
+				logDebug("Aborting DNS: no time budget left before %s", server)
+				return nil, ErrNoIPDiscovered
+			}
+			ip, err := d.tryQuery(ctx, server, "udp6", timeout)
 			if err == nil {
 				return ip, nil
 			}
@@ -85,7 +90,12 @@ func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP
 	}
 	if version == Any || version == IPv4Only {
 		for _, server := range d.config.Servers {
-			ip, err := d.tryQuery(ctx, server, "udp4")
+			timeout, ok := attemptBudget(ctx, d.requestTimeout)
+			if !ok {
+				logDebug("Aborting DNS: no time budget left before %s", server)
+				return nil, ErrNoIPDiscovered
+			}
+			ip, err := d.tryQuery(ctx, server, "udp4", timeout)
 			if err == nil {
 				return ip, nil
 			}

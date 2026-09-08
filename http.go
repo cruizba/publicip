@@ -26,9 +26,9 @@ func newHTTPDiscovererWithConfig(timeout time.Duration, config HTTPConfig) *http
 }
 
 // tryProtocol attempts to discover IP using the specified network (tcp4 or tcp6)
-func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network string) (net.IP, error) {
+func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network string, timeout time.Duration) (net.IP, error) {
 	dialer := &net.Dialer{
-		Timeout:       d.requestTimeout,
+		Timeout:       timeout,
 		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
 	}
 
@@ -40,7 +40,7 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 				return tls.DialWithDialer(dialer, network, addr, nil)
 			},
 		},
-		Timeout: d.requestTimeout,
+		Timeout: timeout,
 	}
 
 	// Create request with context
@@ -84,7 +84,12 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
 	if version == Any || version == IPv6Only {
 		for _, endpoint := range d.config.Endpoints {
-			ip, err := d.tryProtocol(ctx, endpoint, "tcp6")
+			timeout, ok := attemptBudget(ctx, d.requestTimeout)
+			if !ok {
+				logDebug("Aborting HTTP: no time budget left before %s", endpoint)
+				return nil, ErrNoIPDiscovered
+			}
+			ip, err := d.tryProtocol(ctx, endpoint, "tcp6", timeout)
 			if err == nil {
 				return ip, nil
 			}
@@ -93,7 +98,12 @@ func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (net.I
 	}
 	if version == Any || version == IPv4Only {
 		for _, endpoint := range d.config.Endpoints {
-			ip, err := d.tryProtocol(ctx, endpoint, "tcp4")
+			timeout, ok := attemptBudget(ctx, d.requestTimeout)
+			if !ok {
+				logDebug("Aborting HTTP: no time budget left before %s", endpoint)
+				return nil, ErrNoIPDiscovered
+			}
+			ip, err := d.tryProtocol(ctx, endpoint, "tcp4", timeout)
 			if err == nil {
 				return ip, nil
 			}

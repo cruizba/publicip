@@ -183,9 +183,9 @@ func parseMappedAddress(data []byte) net.IP {
 }
 
 // tryConnection attempts to establish a STUN connection using the specified network type
-func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network string) (net.IP, error) {
+func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network string, timeout time.Duration) (net.IP, error) {
 	dialer := net.Dialer{
-		Timeout:       d.requestTimeout,
+		Timeout:       timeout,
 		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
 	}
 
@@ -200,7 +200,7 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network stri
 		return nil, err
 	}
 
-	if err := conn.SetDeadline(time.Now().Add(d.requestTimeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return nil, err
 	}
 
@@ -234,7 +234,12 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network stri
 func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
 	if version == Any || version == IPv6Only {
 		for _, server := range d.config.Servers {
-			ip, err := d.tryConnection(ctx, server, "udp6")
+			timeout, ok := attemptBudget(ctx, d.requestTimeout)
+			if !ok {
+				logDebug("Aborting STUN: no time budget left before %s", server)
+				return nil, ErrNoIPDiscovered
+			}
+			ip, err := d.tryConnection(ctx, server, "udp6", timeout)
 			if err == nil {
 				return ip, nil
 			}
@@ -243,7 +248,12 @@ func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (net.I
 	}
 	if version == Any || version == IPv4Only {
 		for _, server := range d.config.Servers {
-			ip, err := d.tryConnection(ctx, server, "udp4")
+			timeout, ok := attemptBudget(ctx, d.requestTimeout)
+			if !ok {
+				logDebug("Aborting STUN: no time budget left before %s", server)
+				return nil, ErrNoIPDiscovered
+			}
+			ip, err := d.tryConnection(ctx, server, "udp4", timeout)
 			if err == nil {
 				return ip, nil
 			}

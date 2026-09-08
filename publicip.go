@@ -81,6 +81,10 @@ func (c *Client) DiscoverWithIpVersion(ctx context.Context, version IPVersion) (
 	methods := []Method{STUN, DNS, HTTP}
 
 	for _, method := range methods {
+		if ctx.Err() != nil {
+			logDebug("Aborting discovery: no time budget left before method %s", method)
+			return nil, ErrNoIPDiscovered
+		}
 		ip, err := c.DiscoverWithMethod(ctx, method, version)
 		if err == nil {
 			return ip, nil

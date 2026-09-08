@@ -42,9 +42,13 @@ genuinely unreachable from a test, say why in the annotation rather than lowerin
 number.
 
 **Statements covered is not the same as tests that work.** `make fuzz` and the CI
-mutation job measure the difference; the mutation baseline in `mutago-baseline.json`
-lists the survivors accepted so far (equivalent mutants, mostly) and the gate is
-`--min-covered-msi`, which is the flag that actually exits non-zero.
+mutation job measure the difference. The gate is `--min-covered-msi`, the one mutago
+mechanism measured to actually fail the job (exit 4). Its baseline features are not used:
+with 12 known escaped mutants in `dns.go`, `--fail-on-escaped` exited 0 with and without a
+baseline file, and passing the baseline changed the reported covered-MSI not at all, so
+nothing is tracked in the tree for it. `report.json`, uploaded by the CI job on every run,
+is where survivors get reviewed — currently 95 of them, mostly equivalent mutants and
+logging-only statements.
 
 ### The suite must not touch the network
 

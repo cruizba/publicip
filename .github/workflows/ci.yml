@@ -164,12 +164,18 @@ jobs:
       - name: Install mutago
         run: go install github.com/quality-gates/mutago/v2/cmd/mutago@v2.10.1
 
+      # The score floor is the gate: it is the only mutago mechanism measured to fail the
+      # job (exit 4). Its baseline features were tried first and are inert here — with 12
+      # known escaped mutants in dns.go, --fail-on-escaped exited 0 with and without a
+      # baseline, and passing the baseline left the reported covered-MSI at exactly
+      # 84.00% either way. So no baseline file is tracked: it would be 14KB of opaque ids,
+      # a regeneration ritual, and no enforcement. report.json, uploaded below on every
+      # run, is where a reviewer reads which mutants survived.
       - name: Mutate
         run: |
           mutago \
             --coverage \
             --min-covered-msi 84 \
-            --baseline=mutago-baseline.json \
             --quiet --no-diffs ./...
 
       - name: Upload the report

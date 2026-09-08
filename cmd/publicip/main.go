@@ -155,6 +155,13 @@ func discover(ctx context.Context, client *publicip.Client, m publicip.Method, v
 	}
 }
 
+// found is one address plus the probe that produced it, so --all --json can report a
+// per-address latency instead of a made-up one.
+type found struct {
+	result  publicip.Result
+	latency time.Duration
+}
+
 // reportAll walks every method, for the requested family or for both, and keeps the
 // distinct addresses. This is the mode that answers "what does the world see me as",
 // which is the question a single address cannot answer on a dual-stack host.
@@ -166,14 +173,16 @@ func (c *cli) reportAll(ctx context.Context, client *publicip.Client, version pu
 	}
 
 	var (
-		seen     = map[string]publicip.Result{}
+		findings []found
+		seen     = map[string]bool{}
 		problems []string
-		order    []string
 	)
 
 	for _, family := range families {
 		for _, method := range methods {
+			start := time.Now()
 			result, err := client.DiscoverWithMethod(ctx, method, family)
+			elapsed := time.Since(start)
 			if err != nil {
 				if ctx.Err() != nil {
 					// The budget is gone; report what was collected rather than
@@ -186,18 +195,22 @@ func (c *cli) reportAll(ctx context.Context, client *publicip.Client, version pu
 				}
 				continue
 			}
+			// The first probe to report an address wins. All three methods usually see the
+			// same address, so what --all should say is which one got there first in the
+			// documented order — overwriting the map reported the last method instead.
 			key := result.IP.String()
-			if _, ok := seen[key]; !ok {
-				order = append(order, key)
+			if seen[key] {
+				continue
 			}
-			seen[key] = result
+			seen[key] = true
+			findings = append(findings, found{result: result, latency: elapsed})
 		}
 		if ctx.Err() != nil {
 			break
 		}
 	}
 
-	if len(order) == 0 {
+	if len(findings) == 0 {
 		if verbose && len(problems) > 0 {
 			for _, e := range problems {
 				fmt.Fprintf(c.stderr, "  %s\n", e)
@@ -206,15 +219,11 @@ func (c *cli) reportAll(ctx context.Context, client *publicip.Client, version pu
 		return errors.New("no public IP could be discovered")
 	}
 
-	results := make([]publicip.Result, 0, len(order))
-	for _, key := range order {
-		results = append(results, seen[key])
-	}
 	if asJSON {
-		return c.encodeJSON(results, problems, 0)
+		return c.encodeAllJSON(findings, problems)
 	}
-	for _, r := range results {
-		fmt.Fprintln(c.stdout, r.IP.String())
+	for _, f := range findings {
+		fmt.Fprintln(c.stdout, f.result.IP.String())
 	}
 	if verbose {
 		for _, e := range problems {
@@ -232,6 +241,24 @@ func (c *cli) encodeJSON(results []publicip.Result, problems []string, elapsed t
 			Method:  string(r.Method),
 			Family:  versionLabel(r.Version),
 			Latency: elapsed.Round(time.Millisecond).String(),
+		})
+	}
+
+	enc := json.NewEncoder(c.stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+// encodeAllJSON writes one entry per address with the latency of the probe that found
+// it, which is the point of --all --json over reading bare lines of stdout.
+func (c *cli) encodeAllJSON(findings []found, problems []string) error {
+	out := jsonOutput{Errors: problems}
+	for _, f := range findings {
+		out.Addresses = append(out.Addresses, jsonAddress{
+			IP:      f.result.IP.String(),
+			Method:  string(f.result.Method),
+			Family:  versionLabel(f.result.Version),
+			Latency: f.latency.Round(time.Millisecond).String(),
 		})
 	}
 

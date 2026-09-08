@@ -190,12 +190,15 @@ $ publicip -i 4 -m stun
 $ publicip -a -j
 {
   "addresses": [
-    { "ip": "2001:db8::1234", "method": "stun", "family": "ipv6" },
-    { "ip": "203.0.113.9", "method": "http", "family": "ipv4" }
+    { "ip": "2001:db8::1234", "method": "stun", "family": "ipv6", "latency": "41ms" },
+    { "ip": "203.0.113.9", "method": "http", "family": "ipv4", "latency": "62ms" }
   ],
   "errors": [ "dns/ipv6: network is unreachable" ]
 }
 ```
+
+With `--all`, an address is attributed to the first method that reported it, in the
+documented order, and each entry carries the latency of that probe.
 
 stdout carries only addresses, one per line, so `publicip | while read ip; do …` keeps
 working; diagnostics and `--verbose` output go to stderr. The exit status is `1` when no

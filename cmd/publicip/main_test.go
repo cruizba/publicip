@@ -479,3 +479,85 @@ func TestRunAllVerbosePrintsFailuresAlongsideResults(t *testing.T) {
 		t.Errorf("stderr = %q, want the failed probe reported", stderr)
 	}
 }
+
+func TestRunAllKeepsTheFirstMethodThatAnswered(t *testing.T) {
+	// Every method sees the same address, as they do on a normal host. --all must
+	// attribute it to the first one in the documented order; the original
+	// implementation stored the address in a map and ended up reporting the last.
+	client := stubClient(t,
+		stubMethod{method: publicip.STUN, stub: stub{ip: "203.0.113.9"}},
+		stubMethod{method: publicip.DNS, stub: stub{ip: "203.0.113.9", delay: 20 * time.Millisecond}},
+		stubMethod{method: publicip.HTTP, stub: stub{ip: "203.0.113.9", delay: 20 * time.Millisecond}},
+	)
+
+	err, stdout, _ := runCLI(t, client, "-a", "-j")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	var out jsonOutput
+	if e := json.Unmarshal([]byte(stdout), &out); e != nil {
+		t.Fatalf("decoding %q: %v", stdout, e)
+	}
+	if len(out.Addresses) != 1 {
+		t.Fatalf("addresses = %d, want the shared address deduplicated: %v", len(out.Addresses), out.Addresses)
+	}
+	if got := out.Addresses[0].Method; got != "stun" {
+		t.Errorf("method = %q, want the first probe that answered", got)
+	}
+	if strings.TrimSpace(stdout) == "" || len(strings.Fields(stdout)) == 0 {
+		t.Error("empty output")
+	}
+}
+
+func TestRunAllReportsPerAddressLatency(t *testing.T) {
+	// The latency has to belong to the probe that found the address: --all used to emit
+	// a hard-coded zero for every entry, which is worse than omitting the field.
+	client := stubClient(t,
+		stubMethod{method: publicip.STUN, stub: stub{ip: "203.0.113.40"}},
+		stubMethod{method: publicip.HTTP, stub: stub{family: "6", ip: "2001:db8::40", delay: 120 * time.Millisecond}},
+	)
+
+	err, stdout, _ := runCLI(t, client, "-a", "-j")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	var out jsonOutput
+	if e := json.Unmarshal([]byte(stdout), &out); e != nil {
+		t.Fatalf("decoding %q: %v", stdout, e)
+	}
+	if len(out.Addresses) != 2 {
+		t.Fatalf("addresses = %d, want both families: %v", len(out.Addresses), out.Addresses)
+	}
+
+	first, second := out.Addresses[0], out.Addresses[1]
+	if first.Method != "http" || first.Family != "ipv6" {
+		t.Errorf("first entry = %+v, want the IPv6 probe (IPv6 is tried first)", first)
+	}
+	if second.Method != "stun" || second.Family != "ipv4" {
+		t.Errorf("second entry = %+v, want the IPv4 probe", second)
+	}
+
+	fast := timeMustParse(t, second.Latency)
+	slow := timeMustParse(t, first.Latency)
+	if slow < 100*time.Millisecond {
+		t.Errorf("the 120ms probe reported %v, want its own duration", slow)
+	}
+	if fast > 50*time.Millisecond {
+		t.Errorf("the immediate probe reported %v, want roughly zero", fast)
+	}
+	if fast >= slow {
+		t.Errorf("latencies are inverted: fast=%v slow=%v", fast, slow)
+	}
+}
+
+func timeMustParse(t *testing.T, s string) time.Duration {
+	t.Helper()
+	if s == "" {
+		t.Fatal("latency is missing from the JSON entry")
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		t.Fatalf("parsing latency %q: %v", s, err)
+	}
+	return d
+}

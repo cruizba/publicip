@@ -331,3 +331,17 @@ func TestDNSExpiredContextStopsBeforeQuery(t *testing.T) {
 		t.Errorf("Discover() took %v with an already-cancelled context", elapsed)
 	}
 }
+
+func TestFamilyOfOnlyHasTwoAnswers(t *testing.T) {
+	// The empty string is the "no family to enforce" value; invoke() never calls
+	// familyOf(Any), so this pins the mapping for the two real versions and the default.
+	if got := familyOf(IPv4Only); got != "4" {
+		t.Errorf("familyOf(IPv4Only) = %q, want 4", got)
+	}
+	if got := familyOf(IPv6Only); got != "6" {
+		t.Errorf("familyOf(IPv6Only) = %q, want 6", got)
+	}
+	if got := familyOf(Any); got != "" {
+		t.Errorf("familyOf(Any) = %q, want the empty marker", got)
+	}
+}

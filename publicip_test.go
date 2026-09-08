@@ -394,3 +394,68 @@ func (f failingDiscoverer) Discover(_ context.Context, _ IPVersion) (Result, err
 	}
 	return Result{}, f.err
 }
+
+// wrongFamily returns an address of the other family, which is a bug a caller-supplied
+// Discoverer could have.
+type wrongFamily struct{ ip string }
+
+func (w wrongFamily) Discover(_ context.Context, v IPVersion) (Result, error) {
+	ip := net.ParseIP(w.ip)
+	family := IPv4Only
+	if ip.To4() == nil {
+		family = IPv6Only
+	}
+	// Deliberately reports what was found, ignoring what was asked for.
+	return Result{IP: ip, Method: "custom", Version: family}, nil
+}
+
+func TestClientRejectsAWrongFamilyFromAnyDiscoverer(t *testing.T) {
+	c := newTestClient(t,
+		WithMethod("custom", wrongFamily{ip: "203.0.113.4"}),
+		WithMethods("custom"),
+	)
+
+	// An IPv6 request answered with an IPv4 address must fail, not be handed back: the
+	// CLI's -i 6 guarantees the address family the caller named.
+	if _, err := c.DiscoverWithIPVersion(context.Background(), IPv6Only); err == nil {
+		t.Fatal("DiscoverWithIPVersion(IPv6Only) = nil error, want the family mismatch rejected")
+	} else if !strings.Contains(err.Error(), "IP version mismatch") {
+		t.Errorf("error = %v, want it to name the family mismatch", err)
+	}
+
+	// The same stub is fine when IPv4 was asked for, and when Any accepts either.
+	if _, err := c.DiscoverWithIPVersion(context.Background(), IPv4Only); err != nil {
+		t.Errorf("DiscoverWithIPVersion(IPv4Only) error = %v, want the answer accepted", err)
+	}
+	if _, err := c.Discover(context.Background()); err != nil {
+		t.Errorf("Discover(Any) error = %v, want the answer accepted", err)
+	}
+}
+
+func TestMethodOrderIsNotProbedTwice(t *testing.T) {
+	// invoke() is the single choke point for a discoverer call; a previous draft called
+	// Discover and then invoke, doubling every probe.
+	var calls []string
+	c := clientWith(map[Method]discoverer{
+		STUN: nameSpy{name: "stun", calls: &calls, ip: "203.0.113.11"},
+	})
+
+	if _, err := c.DiscoverWithIPVersion(context.Background(), IPv4Only); err != nil {
+		t.Fatalf("DiscoverWithIPVersion() error = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Errorf("discoverer called %d times (%v), want exactly once per method", len(calls), calls)
+	}
+}
+
+type nameSpy struct {
+	name  string
+	calls *[]string
+	ip    string
+}
+
+func (s nameSpy) Discover(_ context.Context, _ IPVersion) (Result, error) {
+	*s.calls = append(*s.calls, s.name)
+	ip := net.ParseIP(s.ip)
+	return Result{IP: ip, Method: Method(s.name), Version: IPv4Only}, nil
+}

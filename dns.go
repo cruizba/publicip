@@ -96,6 +96,19 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server DNSServer, family s
 	return ip, nil
 }
 
+// familyOf maps a requested IPVersion onto the family labels the attempts use. Any has
+// no family to enforce.
+func familyOf(version IPVersion) string {
+	switch version {
+	case IPv4Only:
+		return "4"
+	case IPv6Only:
+		return "6"
+	default:
+		return ""
+	}
+}
+
 // familyMismatch reports whether an address came back in the family that was asked for.
 // Sharing the check keeps the three methods from stating it three different ways.
 func familyMismatch(ip net.IP, family string) error {

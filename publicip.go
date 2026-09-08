@@ -152,12 +152,29 @@ func (c *Client) DiscoverWithMethod(ctx context.Context, method Method, version 
 
 	ctx, cancel := c.callContext(ctx)
 	defer cancel()
+	return c.invoke(ctx, target, method, version)
+}
 
+// invoke runs one discoverer and enforces the family the caller asked for. Built-in
+// discoverers already check this per attempt; the check belongs here too because a
+// Discoverer supplied through WithMethod is not required to, and a caller of
+// DiscoverWithIPVersion(IPv6Only) must never be handed an IPv4 address.
+func (c *Client) invoke(ctx context.Context, target discoverer, method Method, version IPVersion) (Result, error) {
 	result, err := target.Discover(ctx, version)
 	if err != nil {
 		c.config.logger.Debug("method failed", "method", string(method), "error", err)
 		return Result{}, err
 	}
+
+	if version != Any {
+		if mismatch := familyMismatch(result.IP, familyOf(version)); mismatch != nil {
+			c.config.logger.Debug("method returned the wrong family", "method", string(method), "ip", result.IP.String())
+			return Result{}, discoveryError(ctx, []Failure{{
+				Method: method, Target: "result", Family: familyOf(version), Err: mismatch,
+			}})
+		}
+	}
+
 	c.config.logger.Debug("address discovered", "method", string(method), "ip", result.IP.String())
 	return result, nil
 }
@@ -180,13 +197,11 @@ func (c *Client) DiscoverWithIPVersion(ctx context.Context, version IPVersion) (
 			continue
 		}
 
-		result, err := target.Discover(ctx, version)
+		result, err := c.invoke(ctx, target, method, version)
 		if err == nil {
-			c.config.logger.Debug("address discovered", "method", string(method), "ip", result.IP.String())
 			return result, nil
 		}
 		failures = append(failures, failuresOf(err)...)
-		c.config.logger.Debug("method failed", "method", string(method), "error", err)
 	}
 
 	c.config.logger.Debug("all discovery methods failed", "attempts", len(failures))

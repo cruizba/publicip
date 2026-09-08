@@ -1,0 +1,21 @@
+# Coverage gate for v2. The mandate is 100% of statements everywhere except what is
+# excluded below with a stated reason; v1 carries no gate at all.
+profile: cover.out
+
+threshold:
+  file: 100
+  package: 100
+  total: 100
+
+# A PR may not lower coverage.
+diff:
+  threshold: 0
+
+exclude:
+  paths:
+    # examples/ is documentation that happens to compile; it is built by CI and run by
+    # the integration suite, not by unit tests.
+    - ^examples/
+
+# Every // coverage-ignore must say why, so the escape hatch stays reviewable.
+force-annotation-comment: true

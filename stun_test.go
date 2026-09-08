@@ -88,14 +88,18 @@ func TestBuildBindingRequest(t *testing.T) {
 	if len(msg) != stunHeaderSize {
 		t.Fatalf("len(msg) = %d, want %d", len(msg), stunHeaderSize)
 	}
-	if got := binary.BigEndian.Uint16(msg[0:2]); got != stunBindingRequest {
-		t.Errorf("message type = %#04x, want %#04x", got, stunBindingRequest)
+	// The literals below are the RFC 5389 values, deliberately not the package
+	// constants: asserting against the constant would still pass when a mutant
+	// changes the constant itself, which is the tautology mutation testing exists to
+	// find.
+	if got := binary.BigEndian.Uint16(msg[0:2]); got != 0x0001 {
+		t.Errorf("message type = %#04x, want the Binding Request value 0x0001", got)
 	}
 	if got := binary.BigEndian.Uint16(msg[2:4]); got != 0 {
 		t.Errorf("message length = %d, want 0 (a Binding Request carries no attributes)", got)
 	}
-	if got := binary.BigEndian.Uint32(msg[4:8]); got != stunMagicCookie {
-		t.Errorf("magic cookie = %#08x, want %#08x", got, stunMagicCookie)
+	if got := binary.BigEndian.Uint32(msg[4:8]); got != 0x2112A442 {
+		t.Errorf("magic cookie = %#08x, want the RFC 5389 cookie 0x2112A442", got)
 	}
 	if !bytes.Equal(msg[8:20], transactionID[:]) {
 		t.Errorf("transaction id %x not embedded in message %x", transactionID, msg[8:20])
@@ -284,6 +288,19 @@ func TestParseBindingResponseAddresses(t *testing.T) {
 			}
 			if got := ip.String(); got != tt.want {
 				t.Errorf("ip = %s, want %s", got, tt.want)
+			}
+			// The attribute numbers the fixture relies on are pinned too: XOR is
+			// 0x0020 and MAPPED 0x0001 in RFC 5389 and in the RFC 3489 fallback.
+			if attrXORMappedAddress != 0x0020 || attrMappedAddress != 0x0001 {
+				t.Fatalf("attribute types drifted: XOR=%#04x MAPPED=%#04x",
+					attrXORMappedAddress, attrMappedAddress)
+			}
+			if stunBindingResponse != 0x0101 || stunHeaderSize != 20 {
+				t.Fatalf("response type or header size drifted: %#04x / %d",
+					stunBindingResponse, stunHeaderSize)
+			}
+			if familyIPv4 != 0x01 || familyIPv6 != 0x02 {
+				t.Fatalf("address family octets drifted: %d / %d", familyIPv4, familyIPv6)
 			}
 		})
 	}

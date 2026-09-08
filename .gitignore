@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+report.json
+mutago-*.json
+cover.out
+publicip
+publicip-*

@@ -283,8 +283,11 @@ func TestAttemptBudget(t *testing.T) {
 				if got > tt.wantBudget {
 					t.Errorf("attemptBudget() = %v, want at most %v", got, tt.wantBudget)
 				}
-				if got < tt.wantBudget/2 {
-					t.Errorf("attemptBudget() = %v, want a share near %v", got, tt.wantBudget)
+				// Nine tenths, not a coin flip: the share is measured from the moment of
+				// the call, so it sits just under the ideal, and a mutant that halves it
+				// has to die here.
+				if got < tt.wantBudget-tt.wantBudget/10 {
+					t.Errorf("attemptBudget() = %v, want at least 90%% of %v", got, tt.wantBudget)
 				}
 			}
 		})

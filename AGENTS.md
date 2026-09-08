@@ -3,163 +3,151 @@
 This file provides guidance to coding agents (pi, Claude Code, ...) when working
 with code in this repository.
 
-> **Status: v2 migration in progress.** `main` is now the module
-> `github.com/cruizba/publicip/v2`, and the redesign is landing commit by commit.
-> Until this note is removed, the architecture and API described below document the
-> **v1** shape (frozen on branch `v1`, tag `v1.2.3`) and parts of it are being replaced.
-> If you change anything public, re-read the Versioning policy section first.
-
-## Build Commands
+## Build commands
 
 ```bash
-# Build CLI tool
+make                    # gofmt check, go vet, tests
+make test race cover    # individually
 go build -o publicip ./cmd/publicip
-
-# Run directly
-go run ./cmd/publicip
-
-# Cross-compile (the release workflow builds linux/darwin/windows x amd64/arm64)
-GOOS=linux GOARCH=amd64 go build -o publicip-linux-amd64 ./cmd/publicip
-GOOS=darwin GOARCH=arm64 go build -o publicip-darwin-arm64 ./cmd/publicip
-GOOS=windows GOARCH=amd64 go build -o publicip-windows-amd64.exe ./cmd/publicip
+go run ./cmd/publicip -m stun -i 4
 ```
 
-The module is **dependency-free**: `go.mod` declares no requires and `go.sum` is
-empty. Keep it that way unless there is a strong reason — it is the main selling
-point of the library.
+The module is **dependency-free**: `go.mod` has no `require` and there is no `go.sum`.
+Keep it that way — it is the library's main selling point. Dev tooling
+(`go-test-coverage`, `mutago`) is `go install`ed in CI and in the Makefile, never added
+to the module.
 
-Formatting / static checks that are expected to pass:
-
-```bash
-gofmt -l .   # must print nothing
-go vet ./...
-```
+Language floor is `go 1.23`. Nothing here may use a newer language feature without
+raising the floor deliberately, in its own `chore!` commit, because that changes what
+consumers can compile against (generic methods, for instance, need 1.27 — which is why
+`run`/`runRound` are generic *functions* taking `*config`).
 
 ## Testing
 
 ```bash
 go test ./...
-go test -v -race ./...
+go test -race -count=1 ./...
+go test -tags integration -v ./...   # contacts the real services
 ```
 
-The STUN codec (`buildBindingRequest`, `parseBindingResponse`,
-`parseXORMappedAddress`, `parseMappedAddress`) is pure and covered table-driven.
-HTTP discovery is tested with `net/http/httptest`; STUN and DNS with fake servers
-bound to loopback, and the client's fallback order with stub discoverers injected
-into the unexported map (`clientWith` in `publicip_test.go`).
+Layout: `*_test.go` in package `publicip` for internals (the wire codec, the round
+engine, the budget math), `example_test.go` in `publicip_test` for the README's snippets,
+`cmd/publicip/main_test.go` for the CLI.
 
-**Tests must never resolve a name.** An address fixture is a loopback literal or an
-RFC 5737 documentation range address (192.0.2.0/24, 198.51.100.0/24,
-203.0.113.0/24), never a hostname. `hermetic_test.go` enforces this by parsing the
-test files, and the `Tests must not touch the network` CI job traces syscalls. Note
-that running the suite in a network namespace is *not* a sufficient check: a fixture
-that leaks a DNS query still passes there, because resolution failing is what the test
-asserts. Real end-to-end checks against public servers live outside the unit suite.
+**Coverage gate: 100 % of statements**, per file, package and total, from
+`.testcoverage.yml`. `make check-coverage` runs it locally. Exclusions are
+`examples/` (config) and `func main()` (a `// coverage-ignore` with a reason — the tool
+requires the reason). New code ships with the tests that cover it; when a branch is
+genuinely unreachable from a test, say why in the annotation rather than lowering the
+number.
 
-Coverage is reported in CI but not gated (v1 is frozen); the 100 % mandate belongs to
-v2, where the unexported rand/dial/lookup seams make the remaining branches
-reachable.
+**Statements covered is not the same as tests that work.** `make fuzz` and the CI
+mutation job measure the difference; the mutation baseline in `mutago-baseline.json`
+lists the survivors accepted so far (equivalent mutants, mostly) and the gate is
+`--min-covered-msi`, which is the flag that actually exits non-zero.
+
+### The suite must not touch the network
+
+- An address fixture is a loopback literal or an RFC 5737 documentation address
+  (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`). **Never a hostname**: it leaks
+  a real query to whoever's resolver the developer uses.
+- `hermetic_test.go` enforces this by parsing the test files, and CI runs the suite under
+  `strace` and fails on any non-loopback destination.
+- A test that builds a client and discovers must go through `newTestClient(t, …)`
+  (sandboxed target lists) or `clientWith(…)`, because the shipped defaults are real
+  public services. `// hermetic:allow` marks a deliberate exception, at the literal or
+  at the function's doc comment.
+- Running the suite inside a network namespace is **not** proof of hermeticity: a fixture
+  that leaks a query still passes there, since resolution failing is what the test
+  asserts. Use `strace`.
+- Anything that deliberately reaches the internet lives in `integration_test.go` behind
+  `//go:build integration`, which the hermetic checks skip on purpose.
 
 ## Architecture
 
-**publicip** is a Go library and CLI for discovering public IP addresses using
-three methods: STUN, DNS, and HTTP. Everything lives in package `publicip` at
-the repo root (no `internal/`, no subpackages except `cmd/` and `examples/`).
+Everything is package `publicip` at the repo root — no subpackages, because a
+`publicip/` directory would make the import `…/v2/publicip`. `cmd/publicip` is the CLI,
+`examples/` a compiled sample.
 
-### Core Components
-
-- **Client** (`publicip.go`) - entry point holding a `map[Method]discoverer`:
-  - `Discover(ctx)` - any IP version
-  - `DiscoverWithIpVersion(ctx, version)` - specific IP version, tries all methods
-  - `DiscoverWithMethod(ctx, method, version)` - specific method and version
-  - Note: the `discoverer` interface is **unexported**; `Method` and `IPVersion`
-    are exported enums (`STUN`/`DNS`/`HTTP`, `Any`/`IPv4Only`/`IPv6Only`).
-
-- **Implementations** (all take a per-request timeout plus their own config):
-  - `stun.go` - hand-rolled STUN (RFC 5389) over UDP: builds a Binding Request,
-    parses XOR-MAPPED-ADDRESS with the magic-cookie XOR, falls back to
-    MAPPED-ADDRESS. No external STUN library.
-  - `dns.go` - `net.Resolver` with `PreferGo: true` and a custom `Dial` pinned to
-    `udp4`/`udp6`, querying `myip.opendns.com` / `o-o.myaddr.l.google.com` / etc.
-  - `http.go` - HTTPS GET to plain-text IP echo services, TLS dialed with a
-    network-pinned dialer.
-
-- **Configuration** (`config.go`) - `Config{RequestTimeout, STUNConfig, DNSConfig,
-  HTTPConfig}` via `DefaultConfig()`. `RequestTimeout` defaults to 5s.
-  DNS entries use the `"resolver:query-name"` string format; `tryQuery` splits on
-  `:` and rejects anything that is not exactly 2 parts (so IPv6-literal DNS
-  servers are currently unsupported).
-
-- **CLI** (`cmd/publicip/main.go`) - standard library `flag` package (Cobra was
-  removed). Flags are registered twice (long + short) against the same variables:
-  `-i/--ip-version`, `-m/--method`, `-t/--timeout` (seconds, default 10),
-  `-v/--version`, `-h/--help`. No config-file or env-var overrides.
-
-- **Version** (`version.go`) - `const version`, bumped automatically by the
-  release workflow; exposed through `GetVersion()`.
-
-### Fallback Strategy
-
-`Discover(ctx)` calls `DiscoverWithIpVersion(ctx, Any)`, which walks
-`[STUN, DNS, HTTP]`. Within **each** method, the discoverer tries IPv6 on every
-server first, then IPv4 on every server, and returns the first success. So the
-real order is STUN-v6 → STUN-v4 → DNS-v6 → DNS-v4 → HTTP-v6 → HTTP-v4 (not "all
-IPv6 attempts across methods, then IPv4"). If everything fails it returns the
-generic `ErrNoIPDiscovered`, discarding the underlying errors.
-
-### Timeout Behaviour (gotcha)
-
-`RequestTimeout` is per **attempt**, not per call, and `DiscoverWithIpVersion`
-makes up to 20 attempts (3 STUN + 4 DNS + 3 HTTP, each over IPv6 then IPv4). Since
-v1.2.3, `attemptBudget()` bounds each attempt by the time left in the caller's
-context *and* divides that remainder by the number of attempts still waiting, so a
-single stalled server cannot starve the healthy ones behind it. `attemptPlan()` owns
-the traversal order (IPv6 across all targets first, then IPv4) — changing it alters
-which server answers and is therefore a v2 decision, not a v1 refactor.
-
-Remaining, by design: a server without an AAAA record (`api.ipify.org`,
-`ns1-1.akamaitech.net`) still spends one fair-share attempt failing over, and a slow
-system resolver still dominates the DNS path because the server's own hostname is
-resolved per attempt. v2 fixes both by resolving once and dialing the IPv4/v6
-probes concurrently.
-
-### Debug Logging
-
-Set `PUBLIC_IP_AUTODISCOVERY_DEBUG=true` (**exactly** `true`; `1` does not
-enable it) to write debug output to stderr. It is read once in `init()` from
-`log.go` through a package-level global; there is no programmatic setter.
-
-### Releasing
-
-`.github/workflows/release.yml` is `workflow_dispatch` with a `version` input:
-it seds `version.go`, commits and pushes to `main`, cross-compiles 6 binaries,
-then creates the tag and assets. `--target` pins the tag to the commit built by
-this job and the push uses an explicit refspec, both so that a release cut from the
-`v1` maintenance branch does not land on main.
-
-Release notes come from `scripts/release-notes.sh`, which groups the commit range by
-Conventional Commit type. Do not switch back to `--generate-notes`: it derives its body
-from merged pull requests, so on a repo where changes land as direct commits it
-describes almost nothing.
-
-`.github/workflows/ci.yml` runs on push to `main` and `v1` and on pull requests:
-gofmt and vet, `-race` tests on the go.mod floor and current stable, the syscall-level
-hermetic check, and all six cross-builds. Dependabot runs weekly for `gomod` and
-`github_actions`.
+- **`publicip.go`** — `Client`, `New(opts...)`, `Discover`/`DiscoverWithIPVersion`/
+  `DiscoverWithMethod`, `Result`, the exported `Discoverer`, `invoke` (the single place a
+  discoverer's answer is checked, including its family), `callContext`.
+- **`options.go`** — the unexported `config` and every `Option`. `WithTimeout` is the
+  total budget of one call (default 0 = the caller's context decides);
+  `WithAttemptTimeout` bounds one attempt (default 5s). Defaults are assembled in
+  `defaultConfig()`, never from a package-level mutable var.
+- **`defaults.go`** — the shipped server lists as unexported slices.
+- **`rounds.go`** — the traversal both discoverers share: `attemptRounds` groups targets
+  by family (IPv6 round first, then IPv4 — that order is observable and belongs to a
+  major), `run` walks the rounds, `runRound` fires one round's attempts concurrently and
+  cancels the losers.
+- **`timeout.go`** — `attemptBudget` (per-attempt ceiling ∩ fair share of the remainder)
+  and `noBudgetError`.
+- **`errors.go`** — `Failure`, `DiscoveryError` (`Error()` is one line, `Detail()` is the
+  list, `Unwrap() []error` exposes the sentinels and every cause), `NewDiscoveryError`.
+- **`stun.go` / `dns.go` / `http.go`** — one method each: a `tryX(ctx, target, family,
+  timeout) (net.IP, error)` plus a one-line `Discover` delegating to `run`. `stun.go`
+  holds the hand-rolled RFC 5389 codec (with the RFC 3489 fallback); `dns.go` holds
+  `DNSServer` and `familyMismatch`; `http.go` holds one `http.Client` per family and
+  `parseAddressBody`.
+- **Test seams, unexported on purpose** (`config` fields, set only from `helpers_test.go`):
+  `lookup` (the DNS transport), `dial` (UDP/TCP establishment), `rand` (transaction-id
+  entropy). Without them four branches are unreachable: a resolver that needs privileges
+  on :53, a connection that fails mid-handshake, and a `crypto/rand` that never fails on
+  demand.
+- **`cmd/publicip`** — `cli{stdout, stderr, newClient}` with `run(args []string) error`;
+  `main()` only wires the process. Flags: `-i/--ip-version`, `-m/--method`, `-a/--all`,
+  `-j/--json`, `-v/--verbose`, `-t/--timeout`, `--version`, `-h/--help`. Addresses go to
+  stdout, everything else to stderr.
+- **Logging** — `log/slog` through the logger in `config`, which defaults to a discard
+  handler. There is no global flag, no environment variable and no package-level writer.
 
 ## Versioning policy
 
-- v1 is a frozen maintenance line: bug fixes only, no new exported symbols, no
-  behavior changes visible to code that compiles today, no change to the `go`
-  directive.
-- All breaking changes (types, names, error semantics, discovery ordering) belong to
-  v2 under module path `github.com/cruizba/publicip/v2`. Intentional breaks use
-  `feat!`/`fix!` commit prefixes so release notes group them.
+- v1 is a **frozen maintenance line**: branch `v1`, the `v1.2.x` tags. Bug fixes only — no new
+  exported symbols, no behaviour change visible to code that compiles today, no change to
+  the `go` directive. Cut `v1.2.x` from it and nothing else.
+- All breaking changes land in v2 under `github.com/cruizba/publicip/v2`. Prefix the commit
+  `feat!`/`fix!`/`chore!` so release notes group it, and record it in `CHANGELOG.md`
+  under a Migration table entry if it renames anything.
+- Intentional breaks get **no** deprecated aliases here: the `/v2` path is the
+  compatibility mechanism, and half-migrating would be the worst of both.
+- Deprecations from here on are v2.x affairs: `// Deprecated:` plus a CHANGELOG note,
+  removed at the next major.
+
+## Releasing
+
+`.github/workflows/release.yml`, `workflow_dispatch` with a `version` input: it seds
+`version.go`, pushes to the branch the workflow ran on (`git push origin HEAD:<ref>`, so
+a release from `v1` cannot land on `main`), cross-builds six binaries and creates the tag
+with `gh release create --target <sha> --notes-file notes.md`.
+
+Release notes come from `scripts/release-notes.sh`, which groups the commit range by
+Conventional Commit type and **aborts if any commit in the range went unclassified**.
+Do not reintroduce `--generate-notes`: it derives its body from merged pull requests, so
+on a repository that commits directly to `main` it describes almost nothing — which is
+how a release announced a Dependabot bump and omitted the fix.
+
+The checkout needs `fetch-depth: 0` for that history. `version.go` is rewritten by the
+workflow, so tests must never assert a literal version string — `version_test.go` matches
+a `vMAJOR.MINOR.PATCH` pattern for that reason.
+
+## CI
+
+`ci.yml` on push to `main`/`v1` and on PRs: gofmt + vet; `-race` on the `go.mod` floor and
+current stable (running on the floor is what proves the directive is honest); the syscall
+hermetic check; the coverage gate; the mutation gate; six cross-builds.
+`nightly.yml` fuzzes each wire parser and runs the integration suite.
+
+Dependabot watches `gomod` (quiet while the module has no dependencies) and
+`github_actions`.
 
 ## Conventions
 
-- Code, comments and documentation (README, AGENTS.md) are in English.
-- `errors.go` defines `ErrUnsupportedIPVersion` and `ErrTimeout` but nothing
-  returns them today; if you add error paths, wire them up rather than adding
-  more unused sentinels, and wrap underlying errors (`%w`) so callers can inspect
-  them.
+- Code, comments and documentation (README, AGENTS.md, CHANGELOG.md) are in English.
+- Commit subjects are Conventional Commits (`feat:`, `fix:`, `ci:`, `docs:`, `test:`,
+  `refactor:`, `chore:`, `build:`), since `scripts/release-notes.sh` groups by them —
+  a subject that fits no type is reported as "Other changes" rather than dropped.
+- Every commit ends with the `Assisted-by:` trailer from the global rules.
+- `docs/v2-plan.md` is local-only (git-excluded) and holds the roadmap; it can disagree
+  with the code, in which case the code is right and the plan is stale.

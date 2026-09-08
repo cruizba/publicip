@@ -130,6 +130,13 @@ func New(opts ...Option) *Client {
 	return c
 }
 
+// ConfiguredMethods returns the discovery methods a call to Discover or
+// DiscoverWithIPVersion will use, in that order. It is the resolved view of
+// WithMethods and WithMethod, which is what makes it worth asking.
+func (c *Client) ConfiguredMethods() []Method {
+	return append([]Method(nil), c.config.methods...)
+}
+
 // callContext bounds one discovery call by the client's timeout, if it has one. The
 // caller's context always wins: the effective deadline is the earlier of the two.
 func (c *Client) callContext(ctx context.Context) (context.Context, context.CancelFunc) {

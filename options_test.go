@@ -3,6 +3,7 @@ package publicip
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -150,5 +151,25 @@ func TestDefaultEndpointShapes(t *testing.T) {
 		if !strings.HasPrefix(endpoint, "https://") {
 			t.Errorf("HTTP default %q is not https", endpoint)
 		}
+	}
+}
+
+func TestConfiguredMethodsReportsTheResolvedOrder(t *testing.T) {
+	// The returned slice is a copy, so a caller cannot rewrite the client's plan.
+	c := newTestClient(t, WithMethods(HTTP, STUN))
+	got := c.ConfiguredMethods()
+	if fmt.Sprint(got) != "[http stun]" {
+		t.Errorf("ConfiguredMethods() = %v, want [http stun]", got)
+	}
+
+	got[0] = DNS
+	if fmt.Sprint(c.ConfiguredMethods()) != "[http stun]" {
+		t.Error("ConfiguredMethods() exposed the client's own slice")
+	}
+
+	// A registered discoverer does not join the order by itself: WithMethods decides.
+	withCustom := newTestClient(t, WithMethod("upnp", stubDiscoverer{method: "upnp"}))
+	if strings.Contains(fmt.Sprint(withCustom.ConfiguredMethods()), "upnp") {
+		t.Error("an unrequested method appeared in the order")
 	}
 }

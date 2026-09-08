@@ -1,248 +1,236 @@
-# publicip - Golang Public IP Discovery Library & CLI Tool
+# publicip
 
-A Go library for discovering your public IP address using multiple methods:
-- STUN (Session Traversal Utilities for NAT)
-- DNS queries
-- HTTP requests
+A small, dependency-free Go library (and CLI) for discovering your public IP address
+over **STUN**, **DNS** and **HTTP**.
 
+- Three independent methods, so a firewalled UDP port or a dead echo service does not
+  break discovery.
+- IPv4 and IPv6, with the family you asked for actually enforced.
+- Every answer says how it was found: method, family, latency.
+- Every failure says why: one error per target tried, not a shrug.
+- No third-party dependencies. Not one. `go.mod` has no `require`.
 
-## Features
+```console
+$ publicip -a
+2001:db8::1234
+203.0.113.9
 
-- Multiple discovery methods (STUN, DNS, HTTP)
-- Support for both IPv4 and IPv6
-- Configurable IP version preference
-- Context support for timeouts and cancellation
-- Fallback between methods
+$ publicip -m dns -v
+resolving via dns …
+found 203.0.113.9 (dns/ipv4) in 84ms
+203.0.113.9
+```
 
-## CLI Installation
+## Install
 
-### Option 1: Install from source
-
-Install the CLI tool using Go:
+The library:
 
 ```bash
-go install github.com/cruizba/publicip/cmd/publicip@latest
+go get github.com/cruizba/publicip/v2
 ```
 
-> You need to have your `$HOME/go/bin` directory in your system's `PATH` to run the installed binary directly.
-
-### Option 2: Download pre-compiled binary
-
-You can download the pre-compiled binaries from the [releases page](https://github.com/cruizba/publicip/releases/latest).
-
-## CLI Usage
-
-Basic usage:
-```bash
-publicip
-```
-
-Options:
-```
-Flags:
-  -i,  --ip-version string   IP version to discover (4 or 6)
-  -m,  --method string       Discovery method (stun, dns, or http)
-  -t,  --timeout int         Timeout in seconds (default 10)
-  -v,  --version            Show version information
-```
-
-Examples:
-```bash
-# Discover IPv4 address
-publicip -i 4
-
-# Discover IPv6 address
-publicip -i 6
-
-# Use specific method (STUN)
-publicip -m stun
-
-# Use DNS method with custom timeout
-publicip -m dns -t 5
-
-# Use specific method (HTTP) and IPv6 only
-publicip -m http -i 6
-```
-
-## Library Installation
+The CLI:
 
 ```bash
-go get github.com/cruizba/publicip
+go install github.com/cruizba/publicip/v2/cmd/publicip@latest
 ```
 
-## Usage
+Or grab a prebuilt binary from the [releases page](https://github.com/cruizba/publicip/releases/latest)
+(linux/darwin/windows × amd64/arm64).
 
-Basic usage:
+> Using v1? It is a frozen maintenance line: [`v1.2.3`](https://github.com/cruizba/publicip/releases/tag/v1.2.3),
+> docs in the [`v1`](https://github.com/cruizba/publicip/tree/v1) branch,
+> import path `github.com/cruizba/publicip` without the `/v2`.
+
+## Library
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "time"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-    "github.com/cruizba/publicip"
+	publicip "github.com/cruizba/publicip/v2"
 )
 
 func main() {
-    // Create a new client with default configuration
-    client := publicip.NewClient()
+	client := publicip.New()
 
-    // Create context with overall timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-    // Discover any IP (IPv4 or IPv6)
-    ip, err := client.Discover(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Printf("Discovered IP: %s\n", ip)
+	result, err := client.Discover(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(result.IP)      // 203.0.113.9
+	fmt.Println(result)         // 203.0.113.9 (stun/ipv4)
+	fmt.Println(result.Method)  // stun
+	fmt.Println(result.Version) // 1
 }
 ```
 
-## Configuration
+`Discover` tries each method in order — STUN, DNS, HTTP — preferring IPv6, and returns
+the first address found. It is a `Result`, not a bare `net.IP`, because "which one of my
+addresses, found how?" is usually the interesting part.
 
-The library provides flexible configuration options through the `Config` struct:
+### Asking for a family, or a method
 
 ```go
-// Create a client with custom configuration
-config := publicip.DefaultConfig()
+// Only IPv6.
+v6, err := client.DiscoverWithIPVersion(ctx, publicip.IPv6Only)
 
-// Configure request timeouts (default: 5 seconds)
-config.RequestTimeout = 3 * time.Second
-
-// Configure STUN servers
-config.STUNConfig.Servers = []string{
-    "stun.custom.com:3478",
-    "stun.backup.com:3478",
-}
-
-// Configure DNS servers
-config.DNSConfig.Servers = []string{
-    "resolver1.custom.com",
-    "resolver2.custom.com",
-}
-
-// Configure HTTP endpoints
-config.HTTPConfig.Endpoints = []string{
-    "https://custom.ip.service/ip",
-    "https://backup.ip.service/ip",
-}
-
-// Create client with custom configuration
-client := publicip.NewClientWithConfig(config)
+// Only HTTP, only IPv4.
+v4, err := client.DiscoverWithMethod(ctx, publicip.HTTP, publicip.IPv4Only)
 ```
 
-### Configuration Options
+An address that does not match the requested family is rejected, whether it came from a
+built-in method or from your own `Discoverer`. `publicip.IPv6Only` is a promise, not a
+preference.
 
-1. Global Settings:
-   - `RequestTimeout`: Timeout for individual service requests (default: 5 seconds)
-   
-2. STUN Configuration:
-   - `STUNConfig.Servers`: List of default STUN servers.
-   ```go
-   []string{
-       "stun.l.google.com:19302",
-       "stun1.l.google.com:19302",
-       "global.stun.twilio.com:3478",
-   }
-   ```
+### Configuration
 
-3. DNS Configuration:
-   - `DNSConfig.Servers`: List of default DNS servers and query names.
-   ```go
-   // Default DNS servers
-   []string{
-        "resolver1.opendns.com:myip.opendns.com",
-        "resolver2.opendns.com:myip.opendns.com",
-        "ns1.google.com:o-o.myaddr.l.google.com",
-        "ns1-1.akamaitech.net:whoami.akamai.net",
-   }
-   ```
+Configuration is a list of options. There is no config struct to fill in, and the zero
+value of an option means "leave the default alone".
 
-   Each entry contains the DNS server address and the query name separated by a colon.
+```go
+client := publicip.New(
+	publicip.WithMethods(publicip.HTTP, publicip.DNS), // order and subset
+	publicip.WithSTUNServers("stun.l.google.com:19302"),
+	publicip.WithDNSServers(publicip.DNSServer{
+		Addr:      "resolver1.opendns.com", // a port is optional, defaults to :53
+		QueryName: "myip.opendns.com",
+	}),
+	publicip.WithHTTPEndpoints("https://api.ipify.org"),
+	publicip.WithAttemptTimeout(2*time.Second), // ceiling for one network attempt
+	publicip.WithTimeout(5*time.Second),        // total budget for one call
+	publicip.WithHTTPClient(myProxiedClient),
+	publicip.WithLogger(slog.New(handler)),
+)
+```
 
-4. HTTP Configuration:
-   - `HTTPConfig.Endpoints`: List of default HTTP endpoints.
-   ```go
-   []string{
-       "https://api.ipify.org",
-       "https://ifconfig.me",
-       "https://icanhazip.com",
-   }
-   ```
+On budgets: the **context you pass is the budget**. `WithTimeout` caps a call from the
+client side for callers who would rather state it once; without it, a `context.Background()`
+means "as long as each attempt needs, up to `WithAttemptTimeout`". Each attempt gets a
+fair share of what is left, so one stalled server cannot starve the healthy ones behind it.
 
-### Timeout Handling
+Defaults: `stun.l.google.com:19302`, `stun1.l.google.com:19302`,
+`global.stun.twilio.com:3478`; the OpenDNS, Google and Akamai address services;
+`api.ipify.org`, `ifconfig.me`, `icanhazip.com`; a 5-second per-attempt ceiling.
 
-The library handles timeouts at two levels:
+### Finding out why it failed
 
-1. **Request Timeout**: Configured through `Config.RequestTimeout`
-   - Applied individually to each service request
-   - Controls how long each method (STUN/DNS/HTTP) can take
-   - Default is 5 seconds
+A failed call returns a `*DiscoveryError` that wraps `ErrNotFound` (and `ErrTimeout`
+when the budget ran out) together with the error from every target it tried:
 
-2. **Context Timeout**: Provided when calling discovery methods
-   - Controls the overall operation timeout
-   - Can be used to limit total discovery time
-   ```go
-   // Example: Limit overall discovery to 10 seconds
-   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-   defer cancel()
-   ip, err := client.Discover(ctx, publicip.Any)
-   ```
+```go
+_, err := client.Discover(ctx)
 
-## Discovery Methods
+if errors.Is(err, publicip.ErrNotFound) {
+	var de *publicip.DiscoveryError
+	if errors.As(err, &de) {
+		for _, f := range de.Failures() {
+			fmt.Printf("%s %s (ipv%s): %v\n", f.Method, f.Target, f.Family, f.Err)
+		}
+		fmt.Println("timed out:", de.TimedOut())
+	}
+}
+```
 
-The library supports three methods for IP discovery, tried in the following order:
+`err.Error()` stays a readable one-liner; `de.Detail()` is the full list. Matching is
+done with `errors.Is`, so a wrapped sentinel stays a wrapped sentinel.
 
-1. **STUN (Session Traversal Utilities for NAT)**
-   - Uses STUN protocol to discover your public IP
-   - Fastest response time
-   - Works with both IPv4 and IPv6
-   ```go
-   ip, err := client.DiscoverWithMethod(ctx, publicip.STUN, publicip.IPv4Only)
-   ```
+### Your own method
 
-2. **DNS**
-   - Uses DNS queries to special DNS servers
-   - Good fallback option
-   - Works reliably in most network configurations
-   - Supports both IPv4 and IPv6
-   ```go
-   ip, err := client.DiscoverWithMethod(ctx, publicip.DNS, publicip.Any)
-   ```
+```go
+type upnp struct{ client *routerpxml.Client }
 
-3. **HTTP**
-   - Makes HTTP requests to IP discovery services
-   - Most compatible method
-   - Works through most proxies
-   - Support depends on the service endpoints
-   ```go
-   ip, err := client.DiscoverWithMethod(ctx, publicip.HTTP, publicip.IPv6Only)
-   ```
+func (u *upnp) Discover(ctx context.Context, v publicip.IPVersion) (publicip.Result, error) {
+	ip, err := u.queryWANIPAddress(ctx)
+	if err != nil {
+		return publicip.Result{}, publicip.NewDiscoveryError([]publicip.Failure{{
+			Method: "upnp", Target: u.host,
+			Family: "4", // "4" or "6", the family this attempt was made over
+			Err:    err,
+		}}, false)
+	}
+	return publicip.Result{IP: ip, Method: "upnp"}, nil
+}
 
-You can either:
-- Use `Discover()` to try all methods in order until one succeeds
-- Use `DiscoverWithMethod()` to use a specific method
+client := publicip.New(
+	publicip.WithMethod("upnp", &upnp{router}),
+	publicip.WithMethods("upnp", publicip.STUN, publicip.DNS),
+)
+```
 
-## IP Version Selection
+Registering under `publicip.DNS` replaces the built-in DNS rather than running beside it,
+so an environment with its own resolver will not also leak queries to OpenDNS.
 
-Control which IP version to discover:
+## CLI
 
-- `publicip.Any`: Returns either IPv4 or IPv6 (default)
-  ```go
-  ip, err := client.Discover(ctx, publicip.Any)
-  ```
+```
+  -i, --ip-version string   IP version to discover: 4 or 6
+  -m, --method string       discovery method to use: stun, dns or http
+  -a, --all                 try every method and family, print each distinct address
+  -j, --json                print a JSON document instead of a bare address
+  -v, --verbose             report how the address was found, and what failed
+  -t, --timeout int         overall budget in seconds (default 10)
+      --version             print the version and exit
+  -h, --help                show this help
+```
 
-- `publicip.IPv4Only`: Returns only IPv4 addresses
-  ```go
-  ip, err := client.Discover(ctx, publicip.IPv4Only)
-  ```
+```console
+$ publicip -i 4 -m stun
+203.0.113.9
 
-- `publicip.IPv6Only`: Returns only IPv6 addresses
-  ```go
-  ip, err := client.Discover(ctx, publicip.IPv6Only)
-  ```
+$ publicip -a -j
+{
+  "addresses": [
+    { "ip": "2001:db8::1234", "method": "stun", "family": "ipv6" },
+    { "ip": "203.0.113.9", "method": "http", "family": "ipv4" }
+  ],
+  "errors": [ "dns/ipv6: network is unreachable" ]
+}
+```
+
+stdout carries only addresses, one per line, so `publicip | while read ip; do …` keeps
+working; diagnostics and `--verbose` output go to stderr. The exit status is `1` when no
+address could be discovered and `0` otherwise.
+
+v1's `-v` printed the version; that moved to `--version`, and `-v` now means verbose.
+
+## Behaviour worth knowing
+
+- **STUN reads the mapped address**, so it reports the address your NAT translated to,
+  not the interface address. The codec is hand-rolled (RFC 5389 with the RFC 3489
+  fallback), over UDP, with no dependency.
+- **DNS asks services that answer with the caller's address.** The record types supported
+  are the ones `net.Resolver` can ask for (A and AAAA); services that only answer `TXT`
+  are out of reach without a DNS client of our own, which a zero-dependency library
+  declines to be.
+- **HTTP follows redirects** and accepts any body that parses as an address, bounded to
+  128 bytes so a confused endpoint cannot make the caller allocate.
+- **IPv6 is tried first** for every method, and a host without an IPv6 route fails over
+  quickly. A service without an AAAA record still spends one IPv6 attempt on it; that is
+  the cost of preferring the family that exists.
+
+## Development
+
+```bash
+make            # gofmt, vet, tests
+make cover      # coverage profile + total
+make check-coverage   # the 100% gate
+make fuzz FUZZTIME=30s
+make integration      # against the real services, needs internet (and IPv6 for those paths)
+```
+
+`go-test-coverage` and `mutago` are installed on demand and never added to `go.mod`:
+a dev tool is not a runtime dependency, and that distinction is the point of the module.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

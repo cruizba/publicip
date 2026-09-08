@@ -102,7 +102,9 @@ func bareNewInDiscoveryTests(t *testing.T, path string) []string {
 	t.Helper()
 
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, 0)
+	// ParseComments is required for the doc-comment exemption below to mean anything:
+	// without it the parser drops comments and fn.Doc is always nil.
+	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
@@ -111,6 +113,12 @@ func bareNewInDiscoveryTests(t *testing.T, path string) []string {
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
+			continue
+		}
+		// An example or snippet may spell out its own sandbox (a stub discoverer plus
+		// WithMethods narrowing to it) in a way the syntactic rule cannot follow. The
+		// doc comment opts it out, so the exemption is visible next to the code.
+		if fn.Doc != nil && strings.Contains(fn.Doc.Text(), "hermetic:allow") {
 			continue
 		}
 

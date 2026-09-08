@@ -182,12 +182,10 @@ func parseMappedAddress(data []byte) net.IP {
 // tryConnection sends a Binding Request to one STUN server over the forced family.
 func (d *stunDiscoverer) tryConnection(ctx context.Context, server, family string, timeout time.Duration) (net.IP, error) {
 	network := "udp" + family
-	dialer := net.Dialer{
-		Timeout:       timeout,
-		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
-	}
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	conn, err := dialer.DialContext(ctx, network, server)
+	conn, err := d.cfg.dial(dialCtx, network, server)
 	if err != nil {
 		return nil, err
 	}

@@ -50,3 +50,8 @@ func withLookup(fn lookupFunc) Option {
 func withRand(r io.Reader) Option {
 	return func(c *config) { c.rand = r }
 }
+
+// withDial installs a fake transport for the STUN and HTTP dials.
+func withDial(fn dialFunc) Option {
+	return func(c *config) { c.dial = fn }
+}

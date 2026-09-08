@@ -33,10 +33,11 @@ type config struct {
 	methods        []Method
 	custom         map[Method]Discoverer
 
-	// lookup and rand are seams for tests: a resolver on port 53 and a failure inside
-	// crypto/rand are both unreachable without them. They are unexported, so they add
-	// nothing to the public API.
+	// lookup, dial and rand are seams for tests: a resolver on port 53, a connection that
+	// refuses mid-handshake and a failure inside crypto/rand are all unreachable without
+	// them. They are unexported, so they add nothing to the public API.
 	lookup lookupFunc
+	dial   dialFunc
 	rand   io.Reader
 }
 
@@ -56,6 +57,7 @@ func defaultConfig() config {
 		methods:        append([]Method(nil), defaultMethods...),
 		attemptTimeout: defaultAttemptTimeout,
 		lookup:         systemLookup,
+		dial:           systemDial,
 		rand:           defaultEntropy,
 	}
 }

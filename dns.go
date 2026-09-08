@@ -118,3 +118,17 @@ func familyMismatch(ip net.IP, family string) error {
 func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (Result, error) {
 	return run(&d.cfg, ctx, DNS, d.cfg.dnsServers, version, d.tryQuery, DNSServer.String)
 }
+
+// dialFunc establishes a connection forced onto one address family. It exists as a seam
+// so the branches that only a failing connection can reach - dial errors, a deadline that
+// fires mid-write, a read that never completes - are testable without a network fault.
+type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
+
+// systemDial is the production dialer. FallbackDelay stays disabled so that asking for
+// IPv6 means IPv6, rather than silently getting an IPv4 connection back.
+func systemDial(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{
+		FallbackDelay: -1, // Disable IPv4 fallback when requesting IPv6
+	}
+	return dialer.DialContext(ctx, network, addr)
+}

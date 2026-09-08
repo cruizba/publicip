@@ -107,10 +107,15 @@ func bareNewInDiscoveryTests(t *testing.T, path string) []string {
 				switch target.Name {
 				case "New":
 					callsNew = true
-				case "newTestClient", "clientWith":
+				case "newTestClient", "clientWith", "stubClient":
 					viaSandbox = true
 				}
 			case *ast.SelectorExpr:
+				// Only the package's own constructor counts. Matching any selector named
+				// New would flag errors.New and every other factory in the language.
+				if pkg, ok := target.X.(*ast.Ident); ok && pkg.Name == "publicip" && target.Sel.Name == "New" {
+					callsNew = true
+				}
 				if strings.HasPrefix(target.Sel.Name, "Discover") {
 					callsDiscover = true
 				}

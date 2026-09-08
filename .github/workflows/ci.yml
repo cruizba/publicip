@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v1]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Format and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet -vettool= ./...
+
+  test:
+    name: Test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.26.4 is the floor declared in go.mod; 1.27.1 is the current stable.
+        # Running on the floor is what proves the go directive is not a lie.
+        go: ['1.26.4', '1.27.1']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Test (race)
+        run: go test -race -timeout 300s -count=1 ./...
+
+      - name: Coverage report
+        run: |
+          go test -timeout 300s -count=1 -covermode=atomic \
+            -coverpkg=./... -coverprofile=cover.out ./...
+          go tool cover -func=cover.out | tail -1
+          # v1 has no coverage gate; the number is reported so a drop is visible.
+          # The 100% mandate belongs to v2.
+
+  hermetic:
+    name: Tests must not touch the network
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install strace
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends strace
+
+      # Warm the build cache first: the traced run below must not be blamed for the
+      # go command's own module or toolchain traffic.
+      - name: Prebuild
+        run: go build ./... && go test -run '^$' ./...
+
+      - name: Trace every syscall that can leave the machine
+        env:
+          GOPROXY: off
+          GOTOOLCHAIN: local
+        run: |
+          strace -f -qq -e trace=connect,sendto,sendmsg -s 40 \
+            go test -timeout 300s -count=1 ./... >strace.log 2>&1 || {
+              cat strace.log
+              exit 1
+            }
+
+      - name: Fail if anything reached a non-loopback address
+        run: |
+          external=$(
+            grep -oE 'inet_addr\("[^"]+"\)' strace.log
+              | sed 's/.*"\(.*\)".*/\1/' | grep -vE '^127\.' | sort -u || true
+          )
+          v6=$(
+            grep -oE 'inet_pton\(AF_INET6, "[^"]+"' strace.log
+              | sed 's/.*, "//; s/"//' | grep -vE '^::1$' | sort -u || true
+          )
+          resolver=$(grep -c "$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)" strace.log || true)
+          status=0
+          if [ -n "$external" ] || [ -n "$v6" ]; then
+            echo "::error::a test contacted addresses outside loopback: ${external}${v6}"
+            status=1
+          fi
+          # A dial of the system resolver means some fixture is a hostname, not an IP.
+          if [ "${resolver:-0}" != "0" ]; then
+            echo "::error::a test used the system resolver ($resolver calls): use IP literals"
+            status=1
+          fi
+          [ "$status" -eq 0 ] && echo "hermetic: no egress, no DNS"
+          exit $status
+
+  build:
+    name: Cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build every release target
+        run: |
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              out="publicip-${os}-${arch}"
+              [ "$os" = windows ] && out="$out.exe"
+              GOOS=$os GOARCH=$arch go build -o "$out" ./cmd/publicip
+            done
+          done
+          ls -1 publicip-*

@@ -1,0 +1,575 @@
+{
+  "version": 1,
+  "mutants": [
+    {
+      "id": "1b8f3751672f7b6dbf14accc5a2b354b",
+      "file": "dns.go",
+      "mutator": "branch/case",
+      "line": 108
+    },
+    {
+      "id": "8e08cf13b5644c9a6c5a0a36f7617137",
+      "file": "dns.go",
+      "mutator": "arithmetic/negate",
+      "line": 59
+    },
+    {
+      "id": "70aba5ed75cf2e96a9125eac560158f5",
+      "file": "dns.go",
+      "mutator": "branch/if",
+      "line": 119
+    },
+    {
+      "id": "92a2bce8edf2db238fca3e2086180636",
+      "file": "dns.go",
+      "mutator": "branch/if",
+      "line": 123
+    },
+    {
+      "id": "76fdf644a49cd988e7eab240cd87c6b7",
+      "file": "dns.go",
+      "mutator": "composite/field-clear",
+      "line": 59
+    },
+    {
+      "id": "283df4125dba96f60f183542e74166c1",
+      "file": "dns.go",
+      "mutator": "expression/logical",
+      "line": 26
+    },
+    {
+      "id": "9d4b91e3e8b372d287a04ee9c0000cc2",
+      "file": "dns.go",
+      "mutator": "expression/remove",
+      "line": 26
+    },
+    {
+      "id": "ca6c81c78fc3270b856ec5513badf137",
+      "file": "dns.go",
+      "mutator": "expression/remove",
+      "line": 26
+    },
+    {
+      "id": "6749914aaa2905803f0abc4e83c33e9e",
+      "file": "dns.go",
+      "mutator": "statement/remove",
+      "line": 119
+    },
+    {
+      "id": "8993d39d141fad406dea7f19e1335925",
+      "file": "dns.go",
+      "mutator": "statement/remove",
+      "line": 123
+    },
+    {
+      "id": "92ea44f5f36c2a8be71ab85da964424a",
+      "file": "dns.go",
+      "mutator": "numbers/decrementer",
+      "line": 59
+    },
+    {
+      "id": "cc934cf4866c458fa9fbf388ba0b06a4",
+      "file": "dns.go",
+      "mutator": "numbers/incrementer",
+      "line": 59
+    },
+    {
+      "id": "1b7bfea78828372ab33e47fafc778dc6",
+      "file": "errors.go",
+      "mutator": "branch/if",
+      "line": 66
+    },
+    {
+      "id": "6f5191d985ea3f2619b5ad4da221a894",
+      "file": "errors.go",
+      "mutator": "statement/remove",
+      "line": 66
+    },
+    {
+      "id": "6faa41ad84d86f3617f703b204fcbe8b",
+      "file": "errors.go",
+      "mutator": "statement/remove",
+      "line": 107
+    },
+    {
+      "id": "2d7b208288e4fb1346ae2bab571f9409",
+      "file": "http.go",
+      "mutator": "branch/case",
+      "line": 76
+    },
+    {
+      "id": "b253105c05f7269ecdfdafc1f69c5383",
+      "file": "http.go",
+      "mutator": "branch/case",
+      "line": 72
+    },
+    {
+      "id": "2be4299ca7ff7ee51fbc3f80a39dfb99",
+      "file": "http.go",
+      "mutator": "branch/if",
+      "line": 124
+    },
+    {
+      "id": "1fc2e800fc03fc6da5a7c022b84071cf",
+      "file": "http.go",
+      "mutator": "branch/if",
+      "line": 109
+    },
+    {
+      "id": "2ac87977c223f5a716d8fafc7f6082b5",
+      "file": "http.go",
+      "mutator": "conditional/bool-literal",
+      "line": 62
+    },
+    {
+      "id": "250fe26c12e77e7f7210a94c6603ec82",
+      "file": "http.go",
+      "mutator": "composite/field-clear",
+      "line": 46
+    },
+    {
+      "id": "55bfc8430b182ba7d86d252502de33f5",
+      "file": "http.go",
+      "mutator": "expression/error-guard",
+      "line": 108
+    },
+    {
+      "id": "76604dc6f35549f675d734e626f23cd1",
+      "file": "http.go",
+      "mutator": "expression/errorf-wrap",
+      "line": 84
+    },
+    {
+      "id": "73f839aec47e38db8ece1a6352f49721",
+      "file": "http.go",
+      "mutator": "expression/errorf-wrap",
+      "line": 95
+    },
+    {
+      "id": "983a3f30e8621a11e1918e57a6c76881",
+      "file": "http.go",
+      "mutator": "expression/errorf-wrap",
+      "line": 101
+    },
+    {
+      "id": "846966a5ea28b3c7da4205ab972a7e7b",
+      "file": "http.go",
+      "mutator": "numbers/decrementer",
+      "line": 16
+    },
+    {
+      "id": "76842f565ce4bc2cd87ae8261166b9f9",
+      "file": "http.go",
+      "mutator": "numbers/incrementer",
+      "line": 16
+    },
+    {
+      "id": "b8b0fb409c25ed9e059b8de25455f510",
+      "file": "http.go",
+      "mutator": "statement/remove",
+      "line": 62
+    },
+    {
+      "id": "c07a5b883057d790048e3ae39c933700",
+      "file": "http.go",
+      "mutator": "statement/remove",
+      "line": 91
+    },
+    {
+      "id": "3e81ae5c3c086d8f95c7f5bb714a3433",
+      "file": "http.go",
+      "mutator": "statement/return",
+      "line": 72
+    },
+    {
+      "id": "6e191f1779fdebe688dd7940fc1b237a",
+      "file": "http.go",
+      "mutator": "statement/return",
+      "line": 95
+    },
+    {
+      "id": "6f0f354ba01a7fc36a30ca62f0b92e13",
+      "file": "http.go",
+      "mutator": "statement/return",
+      "line": 109
+    },
+    {
+      "id": "9a49d6a8eec96f85daf13b1a68db2209",
+      "file": "http.go",
+      "mutator": "statement/return",
+      "line": 124
+    },
+    {
+      "id": "7d228fa12effef5d9517a5f655e048a5",
+      "file": "options.go",
+      "mutator": "arithmetic/base",
+      "line": 19
+    },
+    {
+      "id": "085d999ca17f858f895842f3b45eda40",
+      "file": "options.go",
+      "mutator": "composite/field-clear",
+      "line": 53
+    },
+    {
+      "id": "acecd2986c8bc96a079444ccaec5619f",
+      "file": "options.go",
+      "mutator": "composite/field-clear",
+      "line": 54
+    },
+    {
+      "id": "934c1c4322b7aca43ca668f2e16067cc",
+      "file": "options.go",
+      "mutator": "expression/comparison",
+      "line": 73
+    },
+    {
+      "id": "ef5c60b1e2b9865e5ffd69c2e7367bce",
+      "file": "options.go",
+      "mutator": "numbers/decrementer",
+      "line": 19
+    },
+    {
+      "id": "abe40c1e255248b5d7771d9f296389f4",
+      "file": "options.go",
+      "mutator": "numbers/incrementer",
+      "line": 19
+    },
+    {
+      "id": "92d587bf9de2abe156fbd61f24bca387",
+      "file": "publicip.go",
+      "mutator": "branch/if",
+      "line": 190
+    },
+    {
+      "id": "85c2b0613f04b68b95541efda3f5871d",
+      "file": "publicip.go",
+      "mutator": "composite/field-clear",
+      "line": 94
+    },
+    {
+      "id": "4b1ec88547cbc5cfaffac29345e2af7e",
+      "file": "publicip.go",
+      "mutator": "composite/field-clear",
+      "line": 173
+    },
+    {
+      "id": "108bf56f9d0b796c5b714981fdafeae3",
+      "file": "publicip.go",
+      "mutator": "composite/field-clear",
+      "line": 173
+    },
+    {
+      "id": "5e8a4fc60aa5309d25636cf463c3cbe9",
+      "file": "publicip.go",
+      "mutator": "composite/field-clear",
+      "line": 173
+    },
+    {
+      "id": "c50d2b1d79a38683a1186b73122b27c2",
+      "file": "publicip.go",
+      "mutator": "expression/error-guard",
+      "line": 189
+    },
+    {
+      "id": "be644774acfc0e87a1d8b36feab7f73d",
+      "file": "publicip.go",
+      "mutator": "loop/break",
+      "line": 191
+    },
+    {
+      "id": "8b375e1831e2c3af890f269cf8e85e82",
+      "file": "publicip.go",
+      "mutator": "loop/break",
+      "line": 197
+    },
+    {
+      "id": "0dbfec9af927d46040a2da9790b80d7b",
+      "file": "publicip.go",
+      "mutator": "statement/defer-remove",
+      "line": 154
+    },
+    {
+      "id": "0dbfec9af927d46040a2da9790b80d7b",
+      "file": "publicip.go",
+      "mutator": "statement/defer-remove",
+      "line": 185
+    },
+    {
+      "id": "4bc3806bca982269fb8421d664fc7240",
+      "file": "publicip.go",
+      "mutator": "statement/remove",
+      "line": 190
+    },
+    {
+      "id": "48dcab8bd8854333868ebe660c38eb20",
+      "file": "rounds.go",
+      "mutator": "arithmetic/base",
+      "line": 70
+    },
+    {
+      "id": "8eb6977d80b8db10fd5d3bc42072f071",
+      "file": "rounds.go",
+      "mutator": "branch/if",
+      "line": 72
+    },
+    {
+      "id": "6b7d125fca8874d95cf4f03012ad731d",
+      "file": "rounds.go",
+      "mutator": "composite/field-clear",
+      "line": 75
+    },
+    {
+      "id": "7a92aaecd498eb3a4f0dd3acc4de0d56",
+      "file": "rounds.go",
+      "mutator": "composite/field-clear",
+      "line": 75
+    },
+    {
+      "id": "11272b3e886bdcbd476230c09fbfa154",
+      "file": "rounds.go",
+      "mutator": "composite/field-clear",
+      "line": 75
+    },
+    {
+      "id": "429b9a4219ac358ce50f6d1a1a4eb397",
+      "file": "rounds.go",
+      "mutator": "composite/field-clear",
+      "line": 76
+    },
+    {
+      "id": "0c41cf62d019ab1a96483c46ad3aa97b",
+      "file": "rounds.go",
+      "mutator": "loop/break",
+      "line": 79
+    },
+    {
+      "id": "4a715c76b6a352568063bfc6c5ecabba",
+      "file": "rounds.go",
+      "mutator": "concurrency/goroutine-remove",
+      "line": 124
+    },
+    {
+      "id": "766a7d1a12a37c25622c26544a2ab778",
+      "file": "rounds.go",
+      "mutator": "loop/range_break",
+      "line": 73
+    },
+    {
+      "id": "85d6b6264fc34b28f5b673b6ca0d06a5",
+      "file": "rounds.go",
+      "mutator": "statement/remove",
+      "line": 72
+    },
+    {
+      "id": "6bf252ddc6966d5c43dded69d769b50d",
+      "file": "rounds.go",
+      "mutator": "statement/remove",
+      "line": 74
+    },
+    {
+      "id": "80e3604a5a9c3ec7654d909ac0ae05de",
+      "file": "stun.go",
+      "mutator": "expression/comparison",
+      "line": 89
+    },
+    {
+      "id": "8e1ddde581ee062484bb22b28f480990",
+      "file": "stun.go",
+      "mutator": "expression/comparison",
+      "line": 112
+    },
+    {
+      "id": "153d0ce3dc57813db26ac292adcc971e",
+      "file": "stun.go",
+      "mutator": "numbers/incrementer",
+      "line": 53
+    },
+    {
+      "id": "cecd8a90bbb5aa420a557160ae3dd6ab",
+      "file": "stun.go",
+      "mutator": "numbers/incrementer",
+      "line": 54
+    },
+    {
+      "id": "f87e5fdfb07e4e146e6436e38e5aafee",
+      "file": "stun.go",
+      "mutator": "numbers/incrementer",
+      "line": 55
+    },
+    {
+      "id": "82acb7dfed7fb843d316801fea9440fb",
+      "file": "stun.go",
+      "mutator": "statement/remove",
+      "line": 54
+    },
+    {
+      "id": "2a40458ce85e222ecb71c40c71f50c84",
+      "file": "timeout.go",
+      "mutator": "expression/comparison",
+      "line": 25
+    },
+    {
+      "id": "89089b0af36cc6e7ede634b3be0eaf9a",
+      "file": "timeout.go",
+      "mutator": "expression/comparison",
+      "line": 30
+    },
+    {
+      "id": "53cba4f874387ab28f2746cbd1991479",
+      "file": "timeout.go",
+      "mutator": "expression/comparison",
+      "line": 33
+    },
+    {
+      "id": "ceb0196f0c49ad91df65c87b612b101c",
+      "file": "timeout.go",
+      "mutator": "expression/comparison",
+      "line": 38
+    },
+    {
+      "id": "931e33882fdb16ea5b0afdfaa57db010",
+      "file": "cmd/publicip/main.go",
+      "mutator": "branch/case",
+      "line": 284
+    },
+    {
+      "id": "209cfda359d4e2356007b418f364a741",
+      "file": "cmd/publicip/main.go",
+      "mutator": "branch/case",
+      "line": 297
+    },
+    {
+      "id": "7f4482be540b7dcedc3136826031da39",
+      "file": "cmd/publicip/main.go",
+      "mutator": "branch/if",
+      "line": 196
+    },
+    {
+      "id": "d3a0750ae62162236ff0bc2a44abba9f",
+      "file": "cmd/publicip/main.go",
+      "mutator": "branch/if",
+      "line": 259
+    },
+    {
+      "id": "dbf01a4ce4d7da38d45cd46de19e1900",
+      "file": "cmd/publicip/main.go",
+      "mutator": "branch/if",
+      "line": 261
+    },
+    {
+      "id": "f2852e0f7a1424e2f6909c712665b403",
+      "file": "cmd/publicip/main.go",
+      "mutator": "conditional/bool-literal",
+      "line": 78
+    },
+    {
+      "id": "503e4f9291ab748cad26de56b7e4add5",
+      "file": "cmd/publicip/main.go",
+      "mutator": "conditional/bool-literal",
+      "line": 80
+    },
+    {
+      "id": "1e45583a04e28e7f78cc28ce4e91564e",
+      "file": "cmd/publicip/main.go",
+      "mutator": "conditional/bool-literal",
+      "line": 82
+    },
+    {
+      "id": "45d1b410140869edcc4eb60f59444b73",
+      "file": "cmd/publicip/main.go",
+      "mutator": "expression/comparison",
+      "line": 201
+    },
+    {
+      "id": "4f6afe024e2769156d45c187aed3d5ab",
+      "file": "cmd/publicip/main.go",
+      "mutator": "expression/logical",
+      "line": 201
+    },
+    {
+      "id": "0a6eb350eb6f65fa71b246189e1c60ff",
+      "file": "cmd/publicip/main.go",
+      "mutator": "expression/error-guard",
+      "line": 195
+    },
+    {
+      "id": "277a87956642a58b32fe8c52349b57ad",
+      "file": "cmd/publicip/main.go",
+      "mutator": "expression/remove",
+      "line": 201
+    },
+    {
+      "id": "c227f8d160b4c6987bdab19f19742d54",
+      "file": "cmd/publicip/main.go",
+      "mutator": "expression/remove",
+      "line": 201
+    },
+    {
+      "id": "1970256752a97af9d178a6b1263bc0ba",
+      "file": "cmd/publicip/main.go",
+      "mutator": "loop/break",
+      "line": 196
+    },
+    {
+      "id": "5cab9df211957a10a66a8be5fbb8bb3f",
+      "file": "cmd/publicip/main.go",
+      "mutator": "loop/break",
+      "line": 182
+    },
+    {
+      "id": "172b1c2bae668b95311e5a97af00fa5d",
+      "file": "cmd/publicip/main.go",
+      "mutator": "numbers/incrementer",
+      "line": 84
+    },
+    {
+      "id": "5ea8779d7dea099f92622a760dd2c0b8",
+      "file": "cmd/publicip/main.go",
+      "mutator": "numbers/decrementer",
+      "line": 84
+    },
+    {
+      "id": "f851857889785c74ae8e78c97d03c4b8",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/remove",
+      "line": 71
+    },
+    {
+      "id": "ee9cec980f18750a79c8cf6844c1c468",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/remove",
+      "line": 76
+    },
+    {
+      "id": "ca63a98a5b607de828cd6c2b730a1b56",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/remove",
+      "line": 84
+    },
+    {
+      "id": "9282d18c93fcd22f6a0125023066364b",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/remove",
+      "line": 239
+    },
+    {
+      "id": "1e8100fb2666c7e7ca3aba12f593812c",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/return",
+      "line": 261
+    },
+    {
+      "id": "2888291a9dc044ea3fc692cff2405ad0",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/return",
+      "line": 284
+    },
+    {
+      "id": "e3323b503fc182d440313b2339870280",
+      "file": "cmd/publicip/main.go",
+      "mutator": "statement/return",
+      "line": 290
+    }
+  ]
+}

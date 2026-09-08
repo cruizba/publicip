@@ -31,10 +31,13 @@ go.work.sum
 # .idea/
 # .vscode/
 report.json
-mutago-*.json
+mutago-agentic.json
+mutago-summary.json
+mutago-gitlab.json
 cover.out
 publicip
 publicip-*
 # tool output
 /report.json
 /mutago-report.html
+!/mutago-baseline.json

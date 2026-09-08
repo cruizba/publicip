@@ -10,6 +10,28 @@ import path.
 
 Nothing pending.
 
+## [2.0.1] - 2026-09-08
+
+### Changed
+
+- **The module now requires Go 1.26 or newer** (`go 1.26` in `go.mod`). For a
+  dependency-free library the language floor is a security setting: the standard library
+  is the whole attack surface, and a floor on an archived release line blesses building
+  with packages that have known, unfixed-and-unfixable vulnerabilities. 1.23 was two majors
+  from its end of life; 1.26 is the oldest line still receiving fixes. Building with an
+  older toolchain now fails with Go's own "requires go >= 1.26" message instead of
+  silently producing a binary with reachable CVEs. Chosen now because 2.0.0 is hours old,
+  so the set of consumers this can catch is as close to empty as it will ever be.
+- Release binaries are built with the current Go stable rather than a pinned patch, and
+  the CI test matrix uses `oldstable`/`stable` aliases for the same reason.
+
+### Fixed
+
+- The published 2.0.0 binaries were compiled with Go 1.26.4 and carry five reachable
+  standard library vulnerabilities on the HTTPS path the CLI uses (net/url, crypto/tls
+  twice, encoding/asn1, net/http), all fixed in 1.26.5/1.26.6. Same source, current
+  toolchain: the 2.0.1 artifacts scan with no reachable findings.
+
 ## [1.2.4] - 2026-09-08
 
 ### Fixed
@@ -62,7 +84,7 @@ module path `github.com/cruizba/publicip/v2`. v1 stays available and frozen.
 
 - The module path is `github.com/cruizba/publicip/v2`; the CLI installs from
   `github.com/cruizba/publicip/v2/cmd/publicip`.
-- The language floor is `go 1.23`.
+- The language floor is `go 1.23` (raised to `go 1.26` in 2.0.1).
 - `New(opts ...Option)` is the constructor.
 - Debug output goes through the `*slog.Logger` given to `WithLogger`.
 

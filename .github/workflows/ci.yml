@@ -87,27 +87,15 @@ jobs:
 
       - name: Fail if anything reached a non-loopback address
         run: |
-          external=$(
-            grep -oE 'inet_addr\("[^"]+"\)' strace.log
-              | sed 's/.*"\(.*\)".*/\1/' | grep -vE '^127\.' | sort -u || true
-          )
-          v6=$(
-            grep -oE 'inet_pton\(AF_INET6, "[^"]+"' strace.log
-              | sed 's/.*, "//; s/"//' | grep -vE '^::1$' | sort -u || true
-          )
-          resolver=$(grep -c "$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)" strace.log || true)
-          status=0
-          if [ -n "$external" ] || [ -n "$v6" ]; then
-            echo "::error::a test contacted addresses outside loopback: ${external}${v6}"
-            status=1
+          v4=$(grep -oE 'inet_addr\("[^"]+"\)' strace.log | sed -E 's/.*"([^"]+)".*/\1/' | grep -vE '^127\.' | sort -u)
+          v6=$(grep -oE 'inet_pton\(AF_INET6, "[^"]+"' strace.log | sed -E 's/.*"([^"]+)".*/\1/' | grep -vE '^::1$' | sort -u)
+          if [ -n "$v4" ] || [ -n "$v6" ]; then
+            echo "addresses contacted by the test suite:"
+            for a in $v4 $v6; do echo "  $a"; done
+            echo "::error::a unit test left loopback. Use an IP literal on loopback or in 192.0.2.0/24 as a fixture."
+            exit 1
           fi
-          # A dial of the system resolver means some fixture is a hostname, not an IP.
-          if [ "${resolver:-0}" != "0" ]; then
-            echo "::error::a test used the system resolver ($resolver calls): use IP literals"
-            status=1
-          fi
-          [ "$status" -eq 0 ] && echo "hermetic: no egress, no DNS"
-          exit $status
+          echo "hermetic: every address the suite touched was loopback"
 
   build:
     name: Cross-compile

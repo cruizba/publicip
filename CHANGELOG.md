@@ -49,6 +49,11 @@ module path `github.com/cruizba/publicip/v2`. v1 stays available and frozen.
 - HTTP: one client and connection pool per family, a 128-byte cap on responses, and a TLS
   handshake that honours the caller's context.
 - `ConfiguredMethods()`, `Version()`.
+- `CHANGELOG.md` is now the source of the release description. `scripts/release-notes.sh`
+  stopped authoring notes from commit subjects and became a drift check between the
+  commits in a range and the changelog section (`verify`), with `section` extracting what
+  a release publishes and `verify-pr` catching, on the pull request, both an
+  unrecognised commit subject and a breaking commit with no changelog entry.
 - Development: `Makefile`, a 100%-statement coverage gate (`.testcoverage.yml`), mutation
   scoring with a committed baseline, fuzz targets for the STUN and HTTP parsers, and an
   `integration` build tag for the tests that contact the real services.

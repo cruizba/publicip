@@ -31,6 +31,35 @@ jobs:
       - name: go vet
         run: go vet -vettool= ./...
 
+  changelog:
+    name: Changelog consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The check compares commit subjects in the range against CHANGELOG.md.
+          fetch-depth: 0
+
+      # Before a version exists there is nothing to extract, but two things can already
+      # be caught: a commit subject no tool understands (it would vanish from every
+      # description), and a breaking commit whose release note nobody wrote.
+      - name: Verify the commits in this change
+        if: github.event_name == 'pull_request'
+        run: ./scripts/release-notes.sh verify-pr "origin/${{ github.base_ref }}"
+
+      - name: Verify the changelog against the shipped tags
+        if: github.event_name == 'push'
+        run: |
+          latest=$(git describe --tags --abbrev=0 || true)
+          [ -n "$latest" ] || { echo "no tags yet"; exit 0; }
+          version="${latest#v}"
+          if ./scripts/release-notes.sh verify "$version" "$latest^" "$latest" 2>/dev/null; then
+            echo "CHANGELOG.md matches $latest"
+          else
+            # Releases cut before this check existed have no section to agree with.
+            echo "::warning::CHANGELOG.md does not describe $latest yet"
+          fi
+
   test:
     name: Test (go ${{ matrix.go }})
     runs-on: ubuntu-latest

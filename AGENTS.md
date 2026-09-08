@@ -146,8 +146,9 @@ Dependabot watches `gomod` (quiet while the module has no dependencies) and
 
 - Code, comments and documentation (README, AGENTS.md, CHANGELOG.md) are in English.
 - Commit subjects are Conventional Commits (`feat:`, `fix:`, `ci:`, `docs:`, `test:`,
-  `refactor:`, `chore:`, `build:`), since `scripts/release-notes.sh` groups by them —
-  a subject that fits no type is reported as "Other changes" rather than dropped.
+  `refactor:`, `chore:`, `build:`): `scripts/release-notes.sh` rejects a subject with no
+  recognised type, and a `!` in the subject commits the release to having a breakage
+  section in `CHANGELOG.md`.
 - Every commit ends with the `Assisted-by:` trailer from the global rules.
 - `docs/v2-plan.md` is local-only (git-excluded) and holds the roadmap; it can disagree
   with the code, in which case the code is right and the plan is stale.

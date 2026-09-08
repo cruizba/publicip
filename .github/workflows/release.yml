@@ -24,7 +24,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.26.4'
+          # Current stable, deliberately not tied to the go.mod floor: the floor says what
+          # can compile this module, it should not decide which compiler ships the
+          # published binaries. The stdlib is this library's whole attack surface, so a
+          # release built on a four-patches-old toolchain would freeze known-reachable
+          # findings into the downloaded artifacts (which is what v2.0.0's 1.26.4 assets
+          # did: net/url, crypto/tls twice, encoding/asn1, net/http; the same source built
+          # on 1.27 scans clean).
+          go-version: stable
 
       - name: Update version
         run: |

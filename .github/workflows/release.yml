@@ -31,7 +31,10 @@ jobs:
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add version.go
           git commit -m "chore: bump version to ${{ github.event.inputs.version }}"
-          git push
+          # checkout leaves the job on a detached HEAD, so a bare "git push" fails;
+          # push explicitly to the branch the workflow was dispatched from so that
+          # releases from the v1 maintenance branch land there and not on main.
+          git push origin "HEAD:${{ github.ref_name }}"
 
       - name: Build Binaries
         run: |
@@ -51,7 +54,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ github.event.inputs.version }}
         run: |
+          # --target pins the tag to the commit we just pushed on this branch.
+          # Without it gh uses the repository default branch, which would tag main
+          # even when the release was cut from a maintenance branch.
           gh release create "$VERSION" \
+            --target "$(git rev-parse HEAD)" \
             --title "$VERSION" \
             --generate-notes \
             "publicip-$VERSION-linux-amd64" \

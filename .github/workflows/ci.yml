@@ -121,9 +121,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The tool needs a newer Go than the library's floor (mutago requires >= 1.26.5),
+      # so this job deliberately uses the current stable: a toolchain requirement of the
+      # checker says nothing about the floor of what is being checked.
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: stable
 
       # Pinned: 100%-statement-coverage means nothing if the assertions are inert, and
       # this is the check that says so. Verified against mutago v2.10.1: the gate that

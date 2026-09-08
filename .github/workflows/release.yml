@@ -14,7 +14,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release notes are derived from the commit range, so the job needs the full
+      # history and the tags; the checkout default of a single commit would leave
+      # `git describe --tags` with nothing to compare against.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -49,6 +54,24 @@ jobs:
             done
           done
 
+      - name: Generate release notes
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # Notes come from the commits in the range, not from merged pull requests:
+          # --generate-notes alone describes only PRs, so changes that land directly on
+          # main are missing from the release description entirely.
+          PREV_TAG=$(git describe --tags --abbrev=0 "HEAD^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            RELEASE_TAG="$VERSION" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+              ./scripts/release-notes.sh "$PREV_TAG" HEAD > notes.md
+          else
+            RELEASE_TAG="$VERSION" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+              ./scripts/release-notes.sh HEAD > notes.md
+          fi
+          echo '----- release notes -----' >&2
+          cat notes.md >&2
+
       - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,6 +83,7 @@ jobs:
           gh release create "$VERSION" \
             --target "$(git rev-parse HEAD)" \
             --title "$VERSION" \
+            --notes-file notes.md \
             --generate-notes \
             "publicip-$VERSION-linux-amd64" \
             "publicip-$VERSION-linux-arm64" \

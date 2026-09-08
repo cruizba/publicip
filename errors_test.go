@@ -243,3 +243,35 @@ func TestEnumValuesAreStable(t *testing.T) {
 		t.Errorf("Method strings changed: %q %q %q", STUN, DNS, HTTP)
 	}
 }
+
+func TestDiscoveryErrorDetailListsEveryFailure(t *testing.T) {
+	err := discoveryError(context.Background(), []Failure{
+		{Method: STUN, Target: "192.0.2.1:3478", Family: "6", Err: errors.New("network unreachable")},
+		{Method: DNS, Target: "198.51.100.1:53", Family: "4", Err: errors.New("read: connection refused")},
+	})
+
+	var de *DiscoveryError
+	if !errors.As(err, &de) {
+		t.Fatal("want a *DiscoveryError")
+	}
+
+	got := de.Detail()
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("Detail() has %d lines, want 2:\n%s", len(lines), got)
+	}
+	if !strings.Contains(lines[0], "stun 192.0.2.1:3478 (ipv6): network unreachable") {
+		t.Errorf("line 1 = %q, want the STUN attempt", lines[0])
+	}
+	if !strings.Contains(lines[1], "dns 198.51.100.1:53 (ipv4): read: connection refused") {
+		t.Errorf("line 2 = %q, want the DNS attempt", lines[1])
+	}
+
+	// Error() stays a single line; Detail() is where the rest lives.
+	if strings.Count(err.Error(), "\n") != 0 {
+		t.Errorf("Error() = %q, want a one-line summary", err.Error())
+	}
+	if !strings.Contains(err.Error(), "+1 more attempts") {
+		t.Errorf("Error() = %q, want it to mention the suppressed failure", err.Error())
+	}
+}

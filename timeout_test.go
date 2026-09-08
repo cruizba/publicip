@@ -254,6 +254,24 @@ func TestAttemptBudget(t *testing.T) {
 			configured: 0, attemptsLeft: 4,
 			wantBudget: 250 * time.Millisecond, wantExact: false, wantOK: true,
 		},
+		{
+			// A caller that has already consumed its slot passes 0; dividing by it would
+			// panic, so it is treated as a single remaining attempt.
+			name: "zero attempts left is treated as one",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Second)
+			},
+			configured: 5 * time.Second, attemptsLeft: 0,
+			wantBudget: time.Second, wantExact: false, wantOK: true,
+		},
+		{
+			name: "negative attempts left is treated as one",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Second)
+			},
+			configured: 0, attemptsLeft: -3,
+			wantBudget: time.Second, wantExact: false, wantOK: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -286,6 +304,33 @@ func TestAttemptBudget(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// staleDeadlineContext reports a deadline that has already passed while Err stays nil,
+// which is the window between a context's deadline elapsing and its cancellation
+// propagating. attemptBudget must refuse an attempt there rather than fall through to
+// the default ceiling, and no real context can be timed to hit that window reliably, so
+// the test supplies one.
+type staleDeadlineContext struct {
+	context.Context
+}
+
+func (staleDeadlineContext) Deadline() (time.Time, bool) {
+	return time.Now().Add(-time.Second), true
+}
+
+func (staleDeadlineContext) Err() error { return nil }
+
+func TestAttemptBudgetRefusesAStaleDeadline(t *testing.T) {
+	ctx := staleDeadlineContext{Context: context.Background()}
+
+	// Both shapes matter: an explicit ceiling and none at all. Without the guard, the
+	// second one would fall through to defaultAttemptTimeout and dial anyway.
+	for _, ceiling := range []time.Duration{5 * time.Second, 0} {
+		if got, ok := attemptBudget(ctx, ceiling, 3); ok || got != 0 {
+			t.Errorf("attemptBudget(ceiling=%v) = %v, %v; want 0, false", ceiling, got, ok)
+		}
 	}
 }
 

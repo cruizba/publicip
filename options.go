@@ -25,6 +25,7 @@ type config struct {
 	httpClient     *http.Client
 	logger         *slog.Logger
 	methods        []Method
+	custom         map[Method]Discoverer
 }
 
 // defaultConfig is the shape a New() client gets with no options.
@@ -113,5 +114,23 @@ func WithLogger(l *slog.Logger) Option {
 		if l != nil {
 			c.logger = l
 		}
+	}
+}
+
+// WithMethod registers a Discoverer under name, replacing the built-in one when name is
+// STUN, DNS or HTTP. Combine it with WithMethods to control the order, or to use only
+// your own sources.
+//
+// An empty name or a nil Discoverer is ignored, so a conditional registration cannot
+// silently disable a method.
+func WithMethod(name Method, d Discoverer) Option {
+	return func(c *config) {
+		if name == "" || d == nil {
+			return
+		}
+		if c.custom == nil {
+			c.custom = make(map[Method]Discoverer)
+		}
+		c.custom[name] = d
 	}
 }

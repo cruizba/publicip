@@ -68,13 +68,30 @@ func (r Result) String() string {
 	return b.String()
 }
 
-// discoverer performs discovery with one method. It is unexported in this commit;
-// exporting it for user-supplied methods is the next step of the v2 design.
-type discoverer interface {
-	// Discover attempts to find the public address with this method. Implementations
-	// must respect ctx, including its deadline and cancellation, and must return a
-	// *DiscoveryError describing every target they tried when they fail.
+// Discoverer finds the public address with one method. Implement it to add a source the
+// package does not ship - a local router API, a private echo service - or to replace one
+// it does.
+//
+// Contract for implementations:
+//   - respect ctx: honour its deadline and cancellation rather than running to completion
+//   - return a Result whose IP is non-nil, and whose Method and Version describe the
+//     address actually found (the client trusts those fields, not what was requested)
+//   - on failure return an error that wraps ErrNotFound, ideally a *DiscoveryError built
+//     with NewDiscoveryError, so callers can inspect which targets failed
+//   - be safe for concurrent use: one Client may call Discover from several goroutines
+type Discoverer interface {
 	Discover(ctx context.Context, version IPVersion) (Result, error)
+}
+
+// discoverer is the internal alias; keeping one definition means a user-supplied
+// Discoverer and a built-in one are checked identically.
+type discoverer = Discoverer
+
+// NewDiscoveryError builds the error type this package returns for a failed search. It
+// is exported so a custom Discoverer can report failures in the same shape as the
+// built-in methods.
+func NewDiscoveryError(failures []Failure, timedOut bool) *DiscoveryError {
+	return &DiscoveryError{failures: failures, timedOut: timedOut}
 }
 
 // Client discovers public IP addresses over STUN, DNS and HTTP.
@@ -96,7 +113,7 @@ func New(opts ...Option) *Client {
 		}
 	}
 
-	return &Client{
+	c := &Client{
 		config: cfg,
 		discoverers: map[Method]discoverer{
 			STUN: newSTUNDiscoverer(cfg),
@@ -104,6 +121,13 @@ func New(opts ...Option) *Client {
 			HTTP: newHTTPDiscoverer(cfg),
 		},
 	}
+
+	// Custom discoverers are applied last, so WithMethod(DNS, ...) replaces the built-in
+	// DNS rather than sitting beside it.
+	for name, d := range cfg.custom {
+		c.discoverers[name] = d
+	}
+	return c
 }
 
 // callContext bounds one discovery call by the client's timeout, if it has one. The

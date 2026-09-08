@@ -61,11 +61,10 @@ func attemptBudget(ctx context.Context, configured time.Duration, attemptsLeft i
 		if attemptsLeft < 1 {
 			attemptsLeft = 1
 		}
+		// remaining > 0 and attemptsLeft >= 1, so the share is always positive: a
+		// further "is the budget still positive" check here could not fire.
 		if share := remaining / time.Duration(attemptsLeft); budget == 0 || share < budget {
 			budget = share
-		}
-		if budget <= 0 {
-			return 0, false
 		}
 	}
 	if budget <= 0 {

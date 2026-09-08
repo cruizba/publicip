@@ -98,9 +98,10 @@ func (e *DiscoveryError) Failures() []Failure { return append([]Failure(nil), e.
 // TimedOut reports whether the caller's context ran out during the call.
 func (e *DiscoveryError) TimedOut() bool { return e.timedOut }
 
-// detail renders every failure, one per line, for callers that want the whole picture
-// rather than the one-line summary.
-func (e *DiscoveryError) detail() string {
+// Detail renders every failure on its own line, for callers that want the whole picture
+// rather than the one-line summary Error() gives - a CLI's verbose flag, or a log line
+// when a user reports that discovery failed on their network.
+func (e *DiscoveryError) Detail() string {
 	var b strings.Builder
 	for _, f := range e.failures {
 		b.WriteString("  ")

@@ -31,18 +31,28 @@ go vet ./...
 
 ## Testing
 
-No tests exist yet. If added, run with:
-
 ```bash
 go test ./...
 go test -v -race ./...
 ```
 
 The STUN codec (`buildBindingRequest`, `parseBindingResponse`,
-`parseXORMappedAddress`, `parseMappedAddress`) is pure and testable offline —
-prefer table-driven tests there. HTTP discovery can be tested with
-`net/http/httptest`; STUN with a `net.ListenPacket("udp4", "127.0.0.1:0")` fake
-server. Tests that hit real public servers are not appropriate for CI.
+`parseXORMappedAddress`, `parseMappedAddress`) is pure and covered table-driven.
+HTTP discovery is tested with `net/http/httptest`; STUN and DNS with fake servers
+bound to loopback, and the client's fallback order with stub discoverers injected
+into the unexported map (`clientWith` in `publicip_test.go`).
+
+**Tests must never resolve a name.** An address fixture is a loopback literal or an
+RFC 5737 documentation range address (192.0.2.0/24, 198.51.100.0/24,
+203.0.113.0/24), never a hostname. `hermetic_test.go` enforces this by parsing the
+test files, and the `Tests must not touch the network` CI job traces syscalls. Note
+that running the suite in a network namespace is *not* a sufficient check: a fixture
+that leaks a DNS query still passes there, because resolution failing is what the test
+asserts. Real end-to-end checks against public servers live outside the unit suite.
+
+Coverage is reported in CI but not gated (v1 is frozen); the 100 % mandate belongs to
+v2, where the unexported rand/dial/lookup seams make the remaining branches
+reachable.
 
 ## Architecture
 
@@ -94,11 +104,18 @@ generic `ErrNoIPDiscovered`, discarding the underlying errors.
 ### Timeout Behaviour (gotcha)
 
 `RequestTimeout` is per **attempt**, not per call, and `DiscoverWithIpVersion`
-makes up to 20 attempts — worst case far exceeds the CLI's default 10s context.
-Servers without an AAAA record (`api.ipify.org`, `ns1-1.akamaitech.net`) burn a
-whole timeout on IPv6 name resolution before IPv4 is ever tried, which is why
-`publicip -m dns -t 5` can fail while `-t 8` succeeds. Mind this when touching
-the discover loops or the CLI timeout flags.
+makes up to 20 attempts (3 STUN + 4 DNS + 3 HTTP, each over IPv6 then IPv4). Since
+v1.2.3, `attemptBudget()` bounds each attempt by the time left in the caller's
+context *and* divides that remainder by the number of attempts still waiting, so a
+single stalled server cannot starve the healthy ones behind it. `attemptPlan()` owns
+the traversal order (IPv6 across all targets first, then IPv4) — changing it alters
+which server answers and is therefore a v2 decision, not a v1 refactor.
+
+Remaining, by design: a server without an AAAA record (`api.ipify.org`,
+`ns1-1.akamaitech.net`) still spends one fair-share attempt failing over, and a slow
+system resolver still dominates the DNS path because the server's own hostname is
+resolved per attempt. v2 fixes both by resolving once and dialing the IPv4/v6
+probes concurrently.
 
 ### Debug Logging
 
@@ -110,9 +127,19 @@ enable it) to write debug output to stderr. It is read once in `init()` from
 
 `.github/workflows/release.yml` is `workflow_dispatch` with a `version` input:
 it seds `version.go`, commits and pushes to `main`, cross-compiles 6 binaries,
-then creates the tag and assets with `gh release create --generate-notes`
-(softprops/action-gh-release was dropped). There is **no CI workflow** running
-tests or lint on PRs. Dependabot runs weekly for `gomod` and `github_actions`.
+then creates the tag and assets. `--target` pins the tag to the commit built by
+this job and the push uses an explicit refspec, both so that a release cut from the
+`v1` maintenance branch does not land on main.
+
+Release notes come from `scripts/release-notes.sh`, which groups the commit range by
+Conventional Commit type. Do not switch back to `--generate-notes`: it derives its body
+from merged pull requests, so on a repo where changes land as direct commits it
+describes almost nothing.
+
+`.github/workflows/ci.yml` runs on push to `main` and `v1` and on pull requests:
+gofmt and vet, `-race` tests on the go.mod floor and current stable, the syscall-level
+hermetic check, and all six cross-builds. Dependabot runs weekly for `gomod` and
+`github_actions`.
 
 ## Versioning policy
 

@@ -232,33 +232,18 @@ func (d *stunDiscoverer) tryConnection(ctx context.Context, server, network stri
 
 // Discover implements the Discoverer interface for STUN
 func (d *stunDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	if version == Any || version == IPv6Only {
-		for _, server := range d.config.Servers {
-			timeout, ok := attemptBudget(ctx, d.requestTimeout)
-			if !ok {
-				logDebug("Aborting STUN: no time budget left before %s", server)
-				return nil, ErrNoIPDiscovered
-			}
-			ip, err := d.tryConnection(ctx, server, "udp6", timeout)
-			if err == nil {
-				return ip, nil
-			}
-			logDebug("IPv6 connection failed for %s: %v", server, err)
+	plan := attemptPlan(d.config.Servers, version)
+	for i, target := range plan {
+		timeout, ok := attemptBudget(ctx, d.requestTimeout, len(plan)-i)
+		if !ok {
+			logDebug("Aborting STUN: no time budget left before %s", target.target)
+			return nil, ErrNoIPDiscovered
 		}
-	}
-	if version == Any || version == IPv4Only {
-		for _, server := range d.config.Servers {
-			timeout, ok := attemptBudget(ctx, d.requestTimeout)
-			if !ok {
-				logDebug("Aborting STUN: no time budget left before %s", server)
-				return nil, ErrNoIPDiscovered
-			}
-			ip, err := d.tryConnection(ctx, server, "udp4", timeout)
-			if err == nil {
-				return ip, nil
-			}
-			logDebug("IPv4 connection failed for %s: %v", server, err)
+		ip, err := d.tryConnection(ctx, target.target, "udp"+target.family, timeout)
+		if err == nil {
+			return ip, nil
 		}
+		logDebug("IPv%s connection failed for %s: %v", target.family, target.target, err)
 	}
 	logDebug("All STUN servers failed to discover IP")
 	return nil, ErrNoIPDiscovered

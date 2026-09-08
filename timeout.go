@@ -5,31 +5,63 @@ import (
 	"time"
 )
 
-// attemptBudget reports how long a single network attempt is allowed to take, and
-// whether there is any time left in ctx to make one at all.
+// attempt is one network try: a target plus the address family to force.
+type attempt struct {
+	target string
+	family string // "4" or "6"
+}
+
+// attemptPlan lists the attempts a discoverer makes for a target list, in the order
+// v1 has always used them: every target over IPv6 first, then every target over IPv4.
+// Listing them up front is what lets each attempt know how many of its siblings are
+// still waiting.
+func attemptPlan(targets []string, version IPVersion) []attempt {
+	var families []string
+	if version == Any || version == IPv6Only {
+		families = append(families, "6")
+	}
+	if version == Any || version == IPv4Only {
+		families = append(families, "4")
+	}
+
+	plan := make([]attempt, 0, len(families)*len(targets))
+	for _, family := range families {
+		for _, target := range targets {
+			plan = append(plan, attempt{target: target, family: family})
+		}
+	}
+	return plan
+}
+
+// attemptBudget reports how long the next attempt may take, and whether there is any
+// time left in ctx to make one at all.
 //
-// Config.RequestTimeout bounds one attempt, but a discovery run makes one attempt
-// per server per address family. Applying RequestTimeout verbatim therefore lets
-// the run outlive the caller's context, and a single slow attempt - typically an
-// IPv6 dial to a server without an AAAA record - can consume the whole budget
-// before IPv4, or another method, is ever tried. Clamping each attempt to the time
-// that is actually left keeps the operation inside the deadline the caller asked
-// for.
-//
-// A context cancelled without a deadline is only observed before an attempt
-// starts: a read that is already blocked waits for its own deadline.
-func attemptBudget(ctx context.Context, configured time.Duration) (time.Duration, bool) {
+// Two rules bound an attempt. Config.RequestTimeout is the per-attempt ceiling the
+// caller configured. attemptsLeft is the fair share of the time remaining in ctx:
+// handing the entire remainder to whichever attempt runs first is what starved the
+// rest of the list, so a single stalled server - typically one whose hostname has to
+// be resolved, or one with no AAAA record on an IPv6 attempt - could consume a whole
+// discovery run and leave every healthy server untried.
+func attemptBudget(ctx context.Context, configured time.Duration, attemptsLeft int) (time.Duration, bool) {
 	if ctx.Err() != nil {
 		return 0, false
 	}
+
+	budget := configured
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return 0, false
 		}
-		if remaining < configured {
-			return remaining, true
+		if attemptsLeft < 1 {
+			attemptsLeft = 1
+		}
+		if share := remaining / time.Duration(attemptsLeft); share < budget {
+			budget = share
+		}
+		if budget <= 0 {
+			return 0, false
 		}
 	}
-	return configured, true
+	return budget, true
 }

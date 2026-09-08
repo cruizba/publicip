@@ -82,36 +82,20 @@ func (d *httpDiscoverer) tryProtocol(ctx context.Context, endpoint, network stri
 
 // Discover implements the discoverer interface for HTTP
 func (d *httpDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	if version == Any || version == IPv6Only {
-		for _, endpoint := range d.config.Endpoints {
-			timeout, ok := attemptBudget(ctx, d.requestTimeout)
-			if !ok {
-				logDebug("Aborting HTTP: no time budget left before %s", endpoint)
-				return nil, ErrNoIPDiscovered
-			}
-			ip, err := d.tryProtocol(ctx, endpoint, "tcp6", timeout)
-			if err == nil {
-				return ip, nil
-			}
-			logDebug("IPv6 connection failed for %s: %v", endpoint, err)
+	plan := attemptPlan(d.config.Endpoints, version)
+	for i, endpoint := range plan {
+		timeout, ok := attemptBudget(ctx, d.requestTimeout, len(plan)-i)
+		if !ok {
+			logDebug("Aborting HTTP: no time budget left before %s", endpoint.target)
+			return nil, ErrNoIPDiscovered
 		}
-	}
-	if version == Any || version == IPv4Only {
-		for _, endpoint := range d.config.Endpoints {
-			timeout, ok := attemptBudget(ctx, d.requestTimeout)
-			if !ok {
-				logDebug("Aborting HTTP: no time budget left before %s", endpoint)
-				return nil, ErrNoIPDiscovered
-			}
-			ip, err := d.tryProtocol(ctx, endpoint, "tcp4", timeout)
-			if err == nil {
-				return ip, nil
-			}
-			logDebug("IPv4 connection failed for %s: %v", endpoint, err)
+		ip, err := d.tryProtocol(ctx, endpoint.target, "tcp"+endpoint.family, timeout)
+		if err == nil {
+			return ip, nil
 		}
+		logDebug("IPv%s connection failed for %s: %v", endpoint.family, endpoint.target, err)
 	}
 
 	logDebug("All HTTP endpoints failed to discover IP")
 	return nil, ErrNoIPDiscovered
-
 }

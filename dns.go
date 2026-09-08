@@ -74,33 +74,18 @@ func (d *dnsDiscoverer) tryQuery(ctx context.Context, server, network string, ti
 
 // Discover implements the discoverer interface for DNS
 func (d *dnsDiscoverer) Discover(ctx context.Context, version IPVersion) (net.IP, error) {
-	if version == Any || version == IPv6Only {
-		for _, server := range d.config.Servers {
-			timeout, ok := attemptBudget(ctx, d.requestTimeout)
-			if !ok {
-				logDebug("Aborting DNS: no time budget left before %s", server)
-				return nil, ErrNoIPDiscovered
-			}
-			ip, err := d.tryQuery(ctx, server, "udp6", timeout)
-			if err == nil {
-				return ip, nil
-			}
-			logDebug("IPv6 DNS query failed for %s: %v", server, err)
+	plan := attemptPlan(d.config.Servers, version)
+	for i, server := range plan {
+		timeout, ok := attemptBudget(ctx, d.requestTimeout, len(plan)-i)
+		if !ok {
+			logDebug("Aborting DNS: no time budget left before %s", server.target)
+			return nil, ErrNoIPDiscovered
 		}
-	}
-	if version == Any || version == IPv4Only {
-		for _, server := range d.config.Servers {
-			timeout, ok := attemptBudget(ctx, d.requestTimeout)
-			if !ok {
-				logDebug("Aborting DNS: no time budget left before %s", server)
-				return nil, ErrNoIPDiscovered
-			}
-			ip, err := d.tryQuery(ctx, server, "udp4", timeout)
-			if err == nil {
-				return ip, nil
-			}
-			logDebug("IPv4 DNS query failed for %s: %v", server, err)
+		ip, err := d.tryQuery(ctx, server.target, "udp"+server.family, timeout)
+		if err == nil {
+			return ip, nil
 		}
+		logDebug("IPv%s DNS query failed for %s: %v", server.family, server.target, err)
 	}
 
 	logDebug("All DNS servers failed to discover IP")

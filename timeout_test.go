@@ -169,66 +169,145 @@ func TestHTTPExpiredContextStopsBeforeRequest(t *testing.T) {
 	}
 }
 
+// TestAttemptBudget covers the budgeting rules directly: the configured per-attempt
+// ceiling, the clamp to the caller's deadline, the fair share between the attempts
+// still waiting, and the two ways an attempt is refused outright.
 func TestAttemptBudget(t *testing.T) {
 	const configured = 5 * time.Second
 
-	t.Run("no deadline uses the configured timeout", func(t *testing.T) {
-		got, ok := attemptBudget(context.Background(), configured)
-		if !ok || got != configured {
-			t.Errorf("attemptBudget() = %v, %v; want %v, true", got, ok, configured)
-		}
-	})
+	tests := []struct {
+		name         string
+		ctx          func() (context.Context, context.CancelFunc)
+		configured   time.Duration
+		attemptsLeft int
+		wantBudget   time.Duration
+		wantExact    bool
+		wantOK       bool
+	}{
+		{
+			name: "no deadline uses the configured timeout",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.Background(), func() {}
+			},
+			configured: configured, attemptsLeft: 8,
+			wantBudget: configured, wantExact: true, wantOK: true,
+		},
+		{
+			name: "deadline far away keeps the configured timeout",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Minute)
+			},
+			configured: configured, attemptsLeft: 8,
+			wantBudget: configured, wantExact: true, wantOK: true,
+		},
+		{
+			name: "fair share of the remainder when it is the tighter bound",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Second)
+			},
+			configured: configured, attemptsLeft: 4,
+			wantBudget: 250 * time.Millisecond, wantExact: false, wantOK: true,
+		},
+		{
+			name: "a single remaining attempt may use all of it",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Second)
+			},
+			configured: configured, attemptsLeft: 1,
+			wantBudget: time.Second, wantExact: false, wantOK: true,
+		},
+		{
+			name: "expired deadline is refused",
+			ctx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+				time.Sleep(10 * time.Millisecond)
+				return ctx, cancel
+			},
+			configured: configured, attemptsLeft: 4,
+			wantBudget: 0, wantOK: false,
+		},
+		{
+			name: "cancelled context is refused",
+			ctx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, cancel
+			},
+			configured: configured, attemptsLeft: 4,
+			wantBudget: 0, wantOK: false,
+		},
+		{
+			name: "zero configured timeout stays zero",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.Background(), func() {}
+			},
+			configured: 0, attemptsLeft: 4,
+			wantBudget: 0, wantExact: true, wantOK: true,
+		},
+	}
 
-	t.Run("long deadline keeps the configured timeout", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		got, ok := attemptBudget(ctx, configured)
-		if !ok || got != configured {
-			t.Errorf("attemptBudget() = %v, %v; want %v, true", got, ok, configured)
-		}
-		if got < configured/2 {
-			t.Errorf("attemptBudget() clamped %v well below the configured %v", got, configured)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := tt.ctx()
+			defer cancel()
 
-	t.Run("short deadline clamps", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		got, ok := attemptBudget(ctx, configured)
-		if !ok {
-			t.Fatal("attemptBudget() reported no budget left")
-		}
-		if got >= configured {
-			t.Errorf("attemptBudget() = %v, want it clamped below %v", got, configured)
-		}
-		if got <= 0 || got > 100*time.Millisecond {
-			t.Errorf("attemptBudget() = %v, want it bounded by the remaining 100ms", got)
-		}
-	})
+			got, ok := attemptBudget(ctx, tt.configured, tt.attemptsLeft)
+			if ok != tt.wantOK {
+				t.Fatalf("attemptBudget() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				if got != 0 {
+					t.Errorf("attemptBudget() = %v, want 0 when refused", got)
+				}
+				return
+			}
+			if tt.wantExact && got != tt.wantBudget {
+				t.Errorf("attemptBudget() = %v, want exactly %v", got, tt.wantBudget)
+				return
+			}
+			if !tt.wantExact {
+				// The fair share is measured from the moment the call is made, so it
+				// sits just under the ideal value but never above the bound.
+				if got > tt.wantBudget {
+					t.Errorf("attemptBudget() = %v, want at most %v", got, tt.wantBudget)
+				}
+				if got < tt.wantBudget/2 {
+					t.Errorf("attemptBudget() = %v, want a share near %v", got, tt.wantBudget)
+				}
+			}
+		})
+	}
+}
 
-	t.Run("expired deadline reports no budget", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
-		defer cancel()
-		time.Sleep(10 * time.Millisecond)
-		if got, ok := attemptBudget(ctx, configured); ok || got != 0 {
-			t.Errorf("attemptBudget() = %v, %v; want 0, false", got, ok)
-		}
-	})
+// TestAttemptPlanOrder pins the historical traversal: IPv6 across every target first,
+// then IPv4. Callers cannot see the plan, but reordering it changes which server answers
+// and is therefore a v2 decision, not a v1 refactor.
+func TestAttemptPlanOrder(t *testing.T) {
+	targets := []string{"a", "b", "c"}
 
-	t.Run("cancelled context reports no budget", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		if got, ok := attemptBudget(ctx, configured); ok || got != 0 {
-			t.Errorf("attemptBudget() = %v, %v; want 0, false", got, ok)
+	got := attemptPlan(targets, Any)
+	want := []attempt{
+		{"a", "6"}, {"b", "6"}, {"c", "6"},
+		{"a", "4"}, {"b", "4"}, {"c", "4"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("attemptPlan(Any) = %v, want %v entries", got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("attemptPlan(Any)[%d] = %v, want %v", i, got[i], want[i])
 		}
-	})
+	}
 
-	t.Run("zero configured timeout is passed through", func(t *testing.T) {
-		got, ok := attemptBudget(context.Background(), 0)
-		if !ok || got != 0 {
-			t.Errorf("attemptBudget() = %v, %v; want 0, true", got, ok)
-		}
-	})
+	if only6 := attemptPlan(targets, IPv6Only); len(only6) != 3 || only6[0].family != "6" {
+		t.Errorf("attemptPlan(IPv6Only) = %v, want the three targets over family 6", only6)
+	}
+	if only4 := attemptPlan(targets, IPv4Only); len(only4) != 3 || only4[0].family != "4" {
+		t.Errorf("attemptPlan(IPv4Only) = %v, want the three targets over family 4", only4)
+	}
+	if empty := attemptPlan(nil, Any); len(empty) != 0 {
+		t.Errorf("attemptPlan(nil) = %v, want no attempts", empty)
+	}
 }
 
 func TestClientStopsTryingWhenBudgetIsExhausted(t *testing.T) {
@@ -272,4 +351,29 @@ func (b blockingDiscoverer) Discover(ctx context.Context, _ IPVersion) (net.IP, 
 	}
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+// TestSTUNSlowFirstServerStarvesTheRest is the shape of the remaining bug: with one
+// attempt that burns the whole context, the healthy servers behind it never get
+// dialed. attemptBudget clamps an attempt to the time left, which stops a single
+// attempt from outliving the context, but it hands the *entire* remainder to the
+// first server. A fair share of what is left is what makes the list traversal work.
+func TestSTUNSlowFirstServerStarvesTheRest(t *testing.T) {
+	// The first server accepts requests and never answers; the second answers well.
+	slow := startStunServer(t, "udp4", silentServer)
+	good := startStunServer(t, "udp4", answeringServer(net.IPv4(192, 0, 2, 99)))
+
+	d := newSTUNDiscovererWithConfig(time.Hour, STUNConfig{Servers: []string{slow, good}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
+
+	ip, err := d.Discover(ctx, IPv4Only)
+	if err != nil {
+		t.Fatalf("Discover() error = %v; the second server was never given a chance because "+
+			"the first attempt consumed the whole %v budget", err, 1200*time.Millisecond)
+	}
+	if got := ip.String(); got != "192.0.2.99" {
+		t.Errorf("Discover() = %s, want 192.0.2.99", got)
+	}
 }

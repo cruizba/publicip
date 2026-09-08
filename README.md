@@ -23,6 +23,10 @@ found 203.0.113.9 (dns/ipv4) in 84ms
 
 ## Install
 
+Requires **Go 1.26 or newer** — the oldest release line still receiving standard library
+security fixes. For a library with no dependencies that is a security requirement rather
+than a formality: the standard library is everything you are compiling against.
+
 The library:
 
 ```bash

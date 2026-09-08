@@ -17,7 +17,11 @@ Keep it that way — it is the library's main selling point. Dev tooling
 (`go-test-coverage`, `mutago`) is `go install`ed in CI and in the Makefile, never added
 to the module.
 
-Language floor is `go 1.23`. Nothing here may use a newer language feature without
+Language floor is `go 1.26` — the oldest line that still receives standard library
+security fixes. For a dependency-free library that floor is a security decision, not a
+compatibility courtesy: the stdlib *is* the attack surface, so a floor on an archived
+release line would bless building with known-vulnerable packages. Nothing here may use a
+newer language feature without
 raising the floor deliberately, in its own `chore!` commit, because that changes what
 consumers can compile against (generic methods, for instance, need 1.27 — which is why
 `run`/`runRound` are generic *functions* taking `*config`).
